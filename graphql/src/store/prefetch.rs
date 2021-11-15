@@ -17,14 +17,13 @@ use graph::{components::store::EntityType, data::graphql::*};
 use graph::{
     data::graphql::ext::DirectiveFinder,
     prelude::{
-        q, s, ApiSchema, AttributeNames, BlockNumber, ChildMultiplicity, EntityCollection,
+        s, ApiSchema, AttributeNames, BlockNumber, ChildMultiplicity, EntityCollection,
         EntityFilter, EntityLink, EntityOrder, EntityWindow, Logger, ParentLink,
         QueryExecutionError, QueryStore, Value as StoreValue, WindowAttribute,
     },
 };
 
-use crate::execution::{ExecutionContext, Resolver};
-use crate::query::ast as qast;
+use crate::execution::{ast as a, ExecutionContext, Resolver};
 use crate::runner::ResultSizeMetrics;
 use crate::schema::ast as sast;
 use crate::store::{build_query, StoreResolver};
@@ -532,7 +531,7 @@ impl<'a> Join<'a> {
 pub fn run(
     resolver: &StoreResolver,
     ctx: &ExecutionContext<impl Resolver>,
-    selection_set: &q::SelectionSet,
+    selection_set: &a::SelectionSet,
     result_size: &ResultSizeMetrics,
 ) -> Result<r::Value, Vec<QueryExecutionError>> {
     execute_root_selection_set(resolver, ctx, selection_set).map(|nodes| {
@@ -551,7 +550,7 @@ pub fn run(
 fn execute_root_selection_set(
     resolver: &StoreResolver,
     ctx: &ExecutionContext<impl Resolver>,
-    selection_set: &q::SelectionSet,
+    selection_set: &a::SelectionSet,
 ) -> Result<Vec<Node>, Vec<QueryExecutionError>> {
     // Obtain the root Query type and fail if there isn't one
     let query_type = ctx.query.schema.query_type.as_ref().into();
@@ -679,8 +678,8 @@ fn execute_selection_set<'a>(
 #[derive(Default, Debug)]
 struct CollectedResponseKey<'a> {
     iface_cond: Option<&'a s::InterfaceType>,
-    iface_fields: Vec<&'a q::Field>,
-    obj_types: IndexMap<ObjectCondition<'a>, Vec<&'a q::Field>>,
+    iface_fields: Vec<&'a a::Field>,
+    obj_types: IndexMap<ObjectCondition<'a>, Vec<&'a a::Field>>,
     collected_column_names: CollectedAttributeNames<'a>,
 }
 
@@ -689,7 +688,7 @@ impl<'a> CollectedResponseKey<'a> {
         &mut self,
         document: &s::Document,
         object_or_interface: ObjectOrInterface<'a>,
-        field: &'a q::Field,
+        field: &'a a::Field,
     ) {
         let schema_field = object_or_interface.field(&field.name);
         schema_field
@@ -728,7 +727,7 @@ impl<'a> CollectedResponseKey<'a> {
 }
 
 impl<'a> IntoIterator for CollectedResponseKey<'a> {
-    type Item = (ObjectOrInterface<'a>, Vec<&'a q::Field>);
+    type Item = (ObjectOrInterface<'a>, Vec<&'a a::Field>);
     type IntoIter = Box<dyn Iterator<Item = Self::Item> + 'a>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -754,7 +753,7 @@ impl<'a> IntoIterator for CollectedResponseKey<'a> {
 fn collect_fields<'a>(
     ctx: &'a ExecutionContext<impl Resolver>,
     parent_ty: ObjectOrInterface<'a>,
-    selection_sets: impl Iterator<Item = &'a q::SelectionSet>,
+    selection_sets: impl Iterator<Item = &'a a::SelectionSet>,
 ) -> GroupedFieldSet<'a> {
     let mut grouped_fields = IndexMap::new();
 
@@ -789,22 +788,22 @@ fn collect_fields<'a>(
 fn collect_fields_inner<'a>(
     ctx: &'a ExecutionContext<impl Resolver>,
     type_condition: ObjectOrInterface<'a>,
-    selection_set: &'a q::SelectionSet,
+    selection_set: &'a a::SelectionSet,
     visited_fragments: &mut HashSet<&'a str>,
     output: &mut GroupedFieldSet<'a>,
 ) {
     fn collect_fragment<'a>(
         ctx: &'a ExecutionContext<impl Resolver>,
         outer_type_condition: ObjectOrInterface<'a>,
-        frag_ty_condition: Option<&'a q::TypeCondition>,
-        frag_selection_set: &'a q::SelectionSet,
+        frag_ty_condition: Option<&'a a::TypeCondition>,
+        frag_selection_set: &'a a::SelectionSet,
         visited_fragments: &mut HashSet<&'a str>,
         output: &mut GroupedFieldSet<'a>,
     ) {
         let schema = &ctx.query.schema.document();
         let fragment_ty = match frag_ty_condition {
             // Unwrap: Validation ensures this interface exists.
-            Some(q::TypeCondition::On(ty_name)) if outer_type_condition.is_interface() => {
+            Some(a::TypeCondition::On(ty_name)) if outer_type_condition.is_interface() => {
                 schema.object_or_interface(ty_name).unwrap()
             }
             _ => outer_type_condition,
@@ -851,13 +850,13 @@ fn collect_fields_inner<'a>(
     let selections = selection_set
         .items
         .iter()
-        .filter(|selection| !qast::skip_selection(selection))
-        .filter(|selection| qast::include_selection(selection));
+        .filter(|selection| !selection.skip())
+        .filter(|selection| selection.include());
 
     for selection in selections {
         match selection {
-            q::Selection::Field(ref field) => {
-                let response_key = qast::get_response_key(field);
+            a::Selection::Field(ref field) => {
+                let response_key = field.response_key();
                 output.entry(response_key).or_default().collect_field(
                     &ctx.query.schema.document(),
                     type_condition,
@@ -865,7 +864,7 @@ fn collect_fields_inner<'a>(
                 );
             }
 
-            q::Selection::FragmentSpread(spread) => {
+            a::Selection::FragmentSpread(spread) => {
                 // Only consider the fragment if it hasn't already been included,
                 // as would be the case if the same fragment spread ...Foo appeared
                 // twice in the same selection set
@@ -882,7 +881,7 @@ fn collect_fields_inner<'a>(
                 }
             }
 
-            q::Selection::InlineFragment(fragment) => {
+            a::Selection::InlineFragment(fragment) => {
                 collect_fragment(
                     ctx,
                     type_condition,
@@ -903,7 +902,7 @@ fn execute_field(
     object_type: ObjectOrInterface<'_>,
     parents: &Vec<&mut Node>,
     join: &Join<'_>,
-    field: &q::Field,
+    field: &a::Field,
     field_definition: &s::Field,
     collected_column_names: AttributeNamesByObjectType<'_>,
 ) -> Result<Vec<Node>, Vec<QueryExecutionError>> {
@@ -995,11 +994,11 @@ type AttributeNamesByObjectType<'a> = BTreeMap<ObjectCondition<'a>, AttributeNam
 struct CollectedAttributeNames<'a>(HashMap<ObjectOrInterface<'a>, AttributeNames>);
 
 impl<'a> CollectedAttributeNames<'a> {
-    fn update(&mut self, object_or_interface: ObjectOrInterface<'a>, field: &q::Field) {
+    fn update(&mut self, object_or_interface: ObjectOrInterface<'a>, field: &a::Field) {
         self.0
             .entry(object_or_interface)
             .or_insert(AttributeNames::All)
-            .update(field);
+            .update(&field.name);
     }
 
     /// Consume this instance and transform it into a mapping from

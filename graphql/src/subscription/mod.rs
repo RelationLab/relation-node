@@ -7,6 +7,7 @@ use graph::{components::store::SubscriptionManager, prelude::*};
 
 use crate::runner::ResultSizeMetrics;
 use crate::{
+    execution::ast as a,
     execution::*,
     prelude::{BlockConstraint, StoreResolver},
     schema::api::ErrorPolicy,
@@ -129,7 +130,7 @@ async fn create_source_event_stream(
 async fn resolve_field_stream(
     ctx: &ExecutionContext<impl Resolver>,
     object_type: &s::ObjectType,
-    field: &q::Field,
+    field: &a::Field,
     _argument_values: HashMap<&str, r::Value>,
 ) -> Result<StoreEventStreamBox, SubscriptionError> {
     ctx.resolver

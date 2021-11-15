@@ -1,11 +1,13 @@
 use std::collections::HashMap;
 
-use crate::execution::ExecutionContext;
-use graph::prelude::{async_trait, q, s, tokio, Error, QueryExecutionError, StoreEventStreamBox};
+use graph::prelude::{async_trait, s, tokio, Error, QueryExecutionError, StoreEventStreamBox};
 use graph::{
     data::graphql::{ext::DocumentExt, ObjectOrInterface},
     prelude::{r, QueryResult},
 };
+
+use crate::execution::ast as a;
+use crate::execution::ExecutionContext;
 
 /// A GraphQL resolver that can resolve entities, enum values, scalar types and interfaces/unions.
 #[async_trait]
@@ -18,14 +20,14 @@ pub trait Resolver: Sized + Send + Sync + 'static {
     fn prefetch(
         &self,
         ctx: &ExecutionContext<Self>,
-        selection_set: &q::SelectionSet,
+        selection_set: &a::SelectionSet,
     ) -> Result<Option<r::Value>, Vec<QueryExecutionError>>;
 
     /// Resolves list of objects, `prefetched_objects` is `Some` if the parent already calculated the value.
     fn resolve_objects(
         &self,
         prefetched_objects: Option<r::Value>,
-        field: &q::Field,
+        field: &a::Field,
         field_definition: &s::Field,
         object_type: ObjectOrInterface<'_>,
         arguments: &HashMap<&str, r::Value>,
@@ -35,7 +37,7 @@ pub trait Resolver: Sized + Send + Sync + 'static {
     fn resolve_object(
         &self,
         prefetched_object: Option<r::Value>,
-        field: &q::Field,
+        field: &a::Field,
         field_definition: &s::Field,
         object_type: ObjectOrInterface<'_>,
         arguments: &HashMap<&str, r::Value>,
@@ -44,7 +46,7 @@ pub trait Resolver: Sized + Send + Sync + 'static {
     /// Resolves an enum value for a given enum type.
     fn resolve_enum_value(
         &self,
-        _field: &q::Field,
+        _field: &a::Field,
         _enum_type: &s::EnumType,
         value: Option<r::Value>,
     ) -> Result<r::Value, QueryExecutionError> {
@@ -55,7 +57,7 @@ pub trait Resolver: Sized + Send + Sync + 'static {
     fn resolve_scalar_value(
         &self,
         _parent_object_type: &s::ObjectType,
-        _field: &q::Field,
+        _field: &a::Field,
         _scalar_type: &s::ScalarType,
         value: Option<r::Value>,
         _argument_values: &HashMap<&str, r::Value>,
@@ -68,7 +70,7 @@ pub trait Resolver: Sized + Send + Sync + 'static {
     /// Resolves a list of enum values for a given enum type.
     fn resolve_enum_values(
         &self,
-        _field: &q::Field,
+        _field: &a::Field,
         _enum_type: &s::EnumType,
         value: Option<r::Value>,
     ) -> Result<r::Value, Vec<QueryExecutionError>> {
@@ -78,7 +80,7 @@ pub trait Resolver: Sized + Send + Sync + 'static {
     /// Resolves a list of scalar values for a given list type.
     fn resolve_scalar_values(
         &self,
-        _field: &q::Field,
+        _field: &a::Field,
         _scalar_type: &s::ScalarType,
         value: Option<r::Value>,
     ) -> Result<r::Value, Vec<QueryExecutionError>> {
@@ -113,7 +115,7 @@ pub trait Resolver: Sized + Send + Sync + 'static {
         &self,
         _schema: &s::Document,
         _object_type: &s::ObjectType,
-        _field: &q::Field,
+        _field: &a::Field,
     ) -> Result<StoreEventStreamBox, QueryExecutionError> {
         Err(QueryExecutionError::NotSupported(String::from(
             "Resolving field streams is not supported by this resolver",
