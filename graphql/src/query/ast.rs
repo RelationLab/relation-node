@@ -98,6 +98,13 @@ pub fn include_selection(selection: &Selection) -> bool {
     }
 }
 
+pub fn is_typename(selection: &Selection) -> bool {
+    match selection {
+        Selection::Field(field) => &field.name == "__typename",
+        Selection::FragmentSpread(_) | Selection::InlineFragment(_) => false,
+    }
+}
+
 /// Returns the response key of a field, which is either its name or its alias (if there is one).
 pub fn get_response_key(field: &Field) -> &str {
     field

@@ -1,7 +1,13 @@
-use std::ops::Deref;
+use std::{collections::HashSet, ops::Deref};
 
-use graph::prelude::{q, r};
+use graph::{
+    components::store::EntityType,
+    data::graphql::DocumentExt,
+    prelude::{q, r, s, QueryExecutionError, Schema},
+};
 use graphql_parser::Pos;
+
+use crate::schema::ast::ObjectCondition;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FragmentDefinition {
@@ -15,18 +21,25 @@ pub struct FragmentDefinition {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SelectionSet {
     span: (Pos, Pos),
-    items: Vec<Selection>,
+    // map object type name -> fields
+    items: Vec<(String, Vec<Field>)>,
 }
 
 impl SelectionSet {
-    pub fn new(span: (Pos, Pos), items: Vec<Selection>) -> Self {
+    pub fn new(span: (Pos, Pos), types: Vec<String>) -> Self {
+        let items = types.into_iter().map(|name| (name, Vec::new())).collect();
         SelectionSet { span, items }
     }
 
     pub fn empty_from(other: &SelectionSet) -> Self {
+        let items = other
+            .items
+            .iter()
+            .map(|(name, _)| (name.clone(), Vec::new()))
+            .collect();
         SelectionSet {
             span: other.span.clone(),
-            items: Vec::new(),
+            items,
         }
     }
 
@@ -34,76 +47,100 @@ impl SelectionSet {
         self.items.is_empty()
     }
 
-    pub fn included(&self) -> impl Iterator<Item = &Selection> {
-        self.items.iter().filter(|selection| selection.selected())
+    pub fn single_field(&self) -> Option<&Field> {
+        let mut iter = self.items.iter();
+        let field = match iter.next() {
+            Some((_, fields)) => {
+                if fields.len() != 1 {
+                    return None;
+                } else {
+                    &fields[0]
+                }
+            }
+            None => return None,
+        };
+        for (_, fields) in iter {
+            if fields.len() != 1 {
+                return None;
+            }
+            if &fields[0] != field {
+                return None;
+            }
+        }
+        return Some(field);
     }
 
-    pub fn selections(&self) -> impl Iterator<Item = &Selection> {
-        self.items.iter()
+    pub fn fields(&self) -> impl Iterator<Item = (&str, impl Iterator<Item = &Field>)> {
+        self.items
+            .iter()
+            .map(|(name, fields)| (name.as_str(), fields.iter()))
     }
 
-    pub fn push(&mut self, field: Field) {
-        self.items.push(Selection::Field(field))
+    pub fn interior_fields(&self) -> impl Iterator<Item = (&str, impl Iterator<Item = &Field>)> {
+        self.items.iter().map(|(name, fields)| {
+            (
+                name.as_str(),
+                fields.iter().filter(|field| !field.is_leaf()),
+            )
+        })
     }
-}
 
-impl Extend<Selection> for SelectionSet {
-    fn extend<T: IntoIterator<Item = Selection>>(&mut self, iter: T) {
-        self.items.extend(iter)
+    pub fn fields_for(&self, obj_type: &s::ObjectType) -> impl Iterator<Item = &Field> {
+        let item = self
+            .items
+            .iter()
+            .find(|(name, _)| name == &obj_type.name)
+            .expect("there is an entry for the type");
+        item.1.iter()
     }
-}
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum Selection {
-    Field(Field),
-    FragmentSpread(FragmentSpread),
-    InlineFragment(InlineFragment),
-}
+    pub fn into_fields_for(self, obj_type: &s::ObjectType) -> impl Iterator<Item = Field> {
+        let item = self
+            .items
+            .into_iter()
+            .find(|(name, _)| name == &obj_type.name)
+            .expect("there is an entry for the type");
+        item.1.into_iter()
+    }
 
-impl Selection {
-    /// Looks up a directive in a selection, if it is provided.
-    pub fn get_directive(&self, name: &str) -> Option<&Directive> {
-        match self {
-            Selection::Field(field) => field
-                .directives
-                .iter()
-                .find(|directive| directive.name == name),
-            _ => None,
+    pub fn push(&mut self, new_field: &Field) {
+        for (_, fields) in &mut self.items {
+            Self::merge_field(fields, new_field.clone());
         }
     }
 
-    /// Returns true if a selection should be skipped (as per the `@skip` directive).
-    fn skip(&self) -> bool {
-        match self.get_directive("skip") {
-            Some(directive) => match directive.argument_value("if") {
-                Some(val) => match val {
-                    // Skip if @skip(if: true)
-                    r::Value::Boolean(skip_if) => *skip_if,
-                    _ => false,
-                },
-                None => true,
-            },
-            None => false,
+    pub fn push_fields(&mut self, fields: Vec<&Field>) {
+        for field in fields {
+            self.push(field);
         }
     }
 
-    /// Returns true if a selection should be included (as per the `@include` directive).
-    fn include(&self) -> bool {
-        match self.get_directive("include") {
-            Some(directive) => match directive.argument_value("if") {
-                Some(val) => match val {
-                    // Include if @include(if: true)
-                    r::Value::Boolean(include) => *include,
-                    _ => false,
-                },
-                None => true,
-            },
-            None => true,
+    pub fn merge(&mut self, other: SelectionSet, directives: Vec<Directive>) {
+        for (other_name, other_fields) in other.items {
+            let item = self
+                .items
+                .iter_mut()
+                .find(|(name, _)| &other_name == name)
+                .expect("all possible types are already in items");
+            for mut other_field in other_fields {
+                other_field.prepend_directives(directives.clone());
+                Self::merge_field(&mut item.1, other_field);
+            }
         }
     }
 
-    fn selected(&self) -> bool {
-        !self.skip() && self.include()
+    fn merge_field(fields: &mut Vec<Field>, new_field: Field) {
+        match fields
+            .iter_mut()
+            .find(|field| field.response_key() == new_field.response_key())
+        {
+            Some(_field) => todo!("merge fields"),
+            None => fields.push(new_field),
+        }
+    }
+
+    pub fn restrict(&mut self, type_cond: &TypeCondition) {
+        self.items.retain(|(name, _)| type_cond.matches_name(name));
     }
 }
 
@@ -150,25 +187,96 @@ impl Field {
             .find(|(n, _)| n == name)
             .map(|(_, v)| v)
     }
+
+    fn prepend_directives(&mut self, mut directives: Vec<Directive>) {
+        // TODO: check that the new directives don't conflict with existing
+        // directives
+        std::mem::swap(&mut self.directives, &mut directives);
+        self.directives.extend(directives);
+    }
+
+    fn is_leaf(&self) -> bool {
+        self.selection_set.is_empty()
+    }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct FragmentSpread {
-    pub position: Pos,
-    pub fragment_name: String,
-    pub directives: Vec<Directive>,
-}
-
+// TODO: Instead of cloning type names, use ObjectCondition<'a>
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeCondition {
-    On(String),
+    Any,
+    Only(HashSet<String>),
 }
 
-impl From<q::TypeCondition> for TypeCondition {
-    fn from(type_cond: q::TypeCondition) -> Self {
-        let q::TypeCondition::On(name) = type_cond;
-        TypeCondition::On(name)
+impl TypeCondition {
+    pub fn convert(
+        schema: &Schema,
+        type_cond: Option<&q::TypeCondition>,
+    ) -> Result<TypeCondition, QueryExecutionError> {
+        match type_cond {
+            Some(q::TypeCondition::On(name)) => Self::from_name(schema, name),
+            None => Ok(TypeCondition::Any),
+        }
     }
+
+    pub fn from_name(schema: &Schema, name: &str) -> Result<TypeCondition, QueryExecutionError> {
+        let set = resolve_object_types(schema, name)?
+            .into_iter()
+            .map(|ty| ty.name().to_string())
+            .collect();
+        Ok(TypeCondition::Only(set))
+    }
+
+    fn matches_name(&self, name: &str) -> bool {
+        match self {
+            TypeCondition::Any => true,
+            TypeCondition::Only(set) => set.contains(name),
+        }
+    }
+
+    pub fn intersect(self, other: &TypeCondition) -> TypeCondition {
+        match self {
+            TypeCondition::Any => other.clone(),
+            TypeCondition::Only(set) => TypeCondition::Only(
+                set.into_iter()
+                    .filter(|ty| other.matches_name(ty))
+                    .collect(),
+            ),
+        }
+    }
+}
+
+/// Look up the type `name` from the schema and resolve interfaces
+/// and unions until we are left with a set of concrete object types
+pub(crate) fn resolve_object_types<'a>(
+    schema: &'a Schema,
+    name: &str,
+) -> Result<HashSet<ObjectCondition<'a>>, QueryExecutionError> {
+    let mut set = HashSet::new();
+    match schema
+        .document
+        .get_named_type(name)
+        .ok_or_else(|| QueryExecutionError::AbstractTypeError(name.to_string()))?
+    {
+        s::TypeDefinition::Interface(intf) => {
+            for obj_ty in &schema.types_for_interface()[&EntityType::new(intf.name.to_string())] {
+                set.insert(obj_ty.into());
+            }
+        }
+        s::TypeDefinition::Union(tys) => {
+            for ty in &tys.types {
+                set.extend(resolve_object_types(schema, ty)?)
+            }
+        }
+        s::TypeDefinition::Object(ty) => {
+            set.insert(ty.into());
+        }
+        s::TypeDefinition::Scalar(_)
+        | s::TypeDefinition::Enum(_)
+        | s::TypeDefinition::InputObject(_) => {
+            return Err(QueryExecutionError::NamedTypeError(name.to_string()));
+        }
+    }
+    Ok(set)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -177,4 +285,103 @@ pub struct InlineFragment {
     pub type_condition: Option<TypeCondition>,
     pub directives: Vec<Directive>,
     pub selection_set: SelectionSet,
+}
+
+#[allow(dead_code)]
+mod tmp {
+    use super::Field;
+    use graphql_parser::Pos;
+    use std::slice::Iter;
+
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct SelectionSet {
+        pub span: (Pos, Pos),
+        // map object type name -> fields
+        pub items: Vec<(String, Vec<Field>)>,
+    }
+
+    impl SelectionSet {
+        fn new(span: (Pos, Pos), types: Vec<String>) -> Self {
+            let items = types.into_iter().map(|name| (name, vec![])).collect();
+            Self { span, items }
+        }
+
+        fn append_set(&mut self, other: SelectionSet) {
+            for (name, fields) in other.items {
+                let item = self.items.iter_mut().find(|item| item.0 == name).unwrap();
+                let mut fields = fields
+                    .into_iter()
+                    .filter(|field| !item.1.contains(field))
+                    .collect::<Vec<_>>();
+                item.1.append(&mut fields);
+            }
+        }
+
+        fn append_field(&mut self, new_field: &Field) {
+            for (_, fields) in &mut self.items {
+                if !fields.contains(new_field) {
+                    fields.push(new_field.clone())
+                }
+            }
+        }
+
+        fn append_field_for(&mut self, object_type: &str, field: Field) {
+            let fields = &mut self
+                .items
+                .iter_mut()
+                .find(|(ty, _)| ty == object_type)
+                .unwrap()
+                .1;
+            if !fields.contains(&field) {
+                fields.push(field);
+            }
+        }
+
+        fn iter_fields(&self) -> SelectionSetFields<'_> {
+            SelectionSetFields::new(self)
+        }
+    }
+
+    pub struct SelectionSetFields<'a> {
+        object_types: Iter<'a, (String, Vec<Field>)>,
+        fields: Option<(&'a str, Iter<'a, Field>)>,
+    }
+
+    impl<'a> SelectionSetFields<'a> {
+        fn new(set: &'a SelectionSet) -> Self {
+            let mut object_types = set.items.iter();
+            let fields = object_types
+                .next()
+                .map(|(object_type, fields)| (object_type.as_str(), fields.iter()));
+            Self {
+                object_types,
+                fields,
+            }
+        }
+    }
+
+    impl<'a> Iterator for SelectionSetFields<'a> {
+        type Item = (&'a str, &'a Field);
+
+        fn next(&mut self) -> Option<Self::Item> {
+            match &mut self.fields {
+                None => None,
+                Some((object_type, fields)) => match fields.next() {
+                    Some(field) => Some((object_type, field)),
+                    None => match self.object_types.next() {
+                        Some((object_type, fields)) => {
+                            let mut iter = fields.iter();
+                            let result = iter.next().map(|field| (object_type.as_str(), field));
+                            self.fields = Some((object_type.as_str(), iter));
+                            result
+                        }
+                        None => {
+                            self.fields = None;
+                            None
+                        }
+                    },
+                },
+            }
+        }
+    }
 }
