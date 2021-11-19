@@ -7,7 +7,7 @@ use graph::data::store::scalar::Bytes;
 use graph::data::subgraph::{UnifiedMappingApiVersion, MAX_SPEC_VERSION};
 use graph::prelude::TryStreamExt;
 use graph::prelude::{SubgraphInstanceManager as SubgraphInstanceManagerTrait, *};
-use graph::util::lfu_cache::LfuCache;
+use graph::util::{backoff::ExponentialBackoff, lfu_cache::LfuCache};
 use graph::{blockchain::block_stream::BlockStreamMetrics, components::store::WritableStore};
 use graph::{blockchain::block_stream::BlockWithTriggers, data::subgraph::SubgraphFeature};
 use graph::{
@@ -26,8 +26,10 @@ use graph::{
 use lazy_static::lazy_static;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, RwLock};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::task;
+
+const MINUTE: Duration = Duration::from_secs(60);
 
 lazy_static! {
     /// Size limit of the entity LFU cache, in bytes.
@@ -460,6 +462,10 @@ where
     let id_for_err = ctx.inputs.deployment.hash.clone();
     let mut first_run = true;
 
+    // Exponential backoff that starts with two minutes and keeps
+    // increasing its timeout exponentially until it reaches 48 hours total, aka two days.
+    let mut backoff = ExponentialBackoff::new(MINUTE * 2, MINUTE * 60 * 24 * 2);
+
     loop {
         debug!(logger, "Starting or restarting subgraph");
 
@@ -656,6 +662,7 @@ where
 
                 // Handle unexpected stream errors by marking the subgraph as failed.
                 Err(e) => {
+                    let deterministic = e.is_deterministic();
                     let message = format!("{:#}", e).replace("\n", "\t");
                     let err = anyhow!("{}, code: {}", message, LogCode::SubgraphSyncingFailure);
 
@@ -664,7 +671,7 @@ where
                         message,
                         block_ptr: Some(block_ptr),
                         handler: None,
-                        deterministic: e.is_deterministic(),
+                        deterministic,
                     };
                     deployment_failed.set(1.0);
 
@@ -672,6 +679,24 @@ where
                         .fail_subgraph(error)
                         .await
                         .context("Failed to set subgraph status to `failed`")?;
+
+                    if !deterministic {
+                        // Cancel the stream for real
+                        ctx.state
+                            .instances
+                            .write()
+                            .unwrap()
+                            .remove(&ctx.inputs.deployment.id);
+
+                        // Sleep before restarting
+                        error!(logger, "Subgraph failed for non-deterministic reasons: {}", e;
+                            "attempt" => backoff.attempt,
+                            "retry_delay_s" => backoff.delay().as_secs());
+                        backoff.sleep_async().await;
+
+                        // And restart the subgraph
+                        break;
+                    }
 
                     return Err(err);
                 }
