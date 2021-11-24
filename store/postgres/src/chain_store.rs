@@ -99,6 +99,48 @@ mod data {
         allow_tables_to_appear_in_same_query!(ethereum_networks, ethereum_blocks);
 
         table! {
+            ethereum_transactions (transaction_index) {
+                block_hash -> Varchar,
+                block_number -> BigInt,
+                // from -> Varchar,
+                gas -> BigInt,
+                gas_price -> BigInt,
+                max_fee_per_gas -> BigInt,
+                max_priority_fe_per_gas -> BigInt,
+                hash -> Varchar,
+                input -> Text,
+                nonce -> Varchar,
+                transaction_index -> Varchar,
+                value -> Varchar,
+                // "type" -> Varchar,
+                chain_id -> Varchar,
+                v -> Varchar,
+                r -> Varchar,
+                s -> Varchar,
+            }
+        }
+        allow_tables_to_appear_in_same_query!(ethereum_networks, ethereum_transactions);
+
+        table! {
+            ethereum_receipts (id) {
+                /// `id` is the transaction_hash + log_index
+                id -> Bytea,
+                data -> Varchar,
+                // topics -> Array<Text>,
+                address -> Varchar,
+                log_type -> Nullable<Varchar>,
+                removed -> Bool,
+                log_index -> BigInt,
+                block_hash -> Varchar,
+                block_number -> BigInt,
+                transaction_hash -> Varchar,
+                transaction_index -> Varchar,
+                transaction_log_index -> Nullable<Varchar>,
+            }
+        }
+        allow_tables_to_appear_in_same_query!(ethereum_networks, ethereum_receipts);
+
+        table! {
             /// `id` is the hash of contract address + encoded function call + block number.
             eth_call_cache (id) {
                 id -> Bytea,
@@ -189,6 +231,52 @@ mod data {
     }
 
     #[derive(Clone, Debug)]
+    struct TransactionsTable {
+        /// The fully qualified name of the blocks table, including the
+        /// schema
+        qname: String,
+        table: DynTable,
+    }
+
+    impl TransactionsTable {
+        const TABLE_NAME: &'static str = "transactions";
+
+        fn new(namespace: &str) -> Self {
+            TransactionsTable {
+                qname: format!("{}.{}", namespace, Self::TABLE_NAME),
+                table: dds::schema(namespace.to_string()).table(Self::TABLE_NAME.to_string()),
+            }
+        }
+        //
+        // fn table(&self) -> DynTable {
+        //     self.table.clone()
+        // }
+    }
+
+    #[derive(Clone, Debug)]
+    struct ReceiptsTable {
+        /// The fully qualified name of the blocks table, including the
+        /// schema
+        qname: String,
+        table: DynTable,
+    }
+
+    impl ReceiptsTable {
+        const TABLE_NAME: &'static str = "receipts";
+
+        fn new(namespace: &str) -> Self {
+            ReceiptsTable {
+                qname: format!("{}.{}", namespace, Self::TABLE_NAME),
+                table: dds::schema(namespace.to_string()).table(Self::TABLE_NAME.to_string()),
+            }
+        }
+
+        // fn table(&self) -> DynTable {
+        //     self.table.clone()
+        // }
+    }
+
+    #[derive(Clone, Debug)]
     struct CallMetaTable {
         qname: String,
         table: DynTable,
@@ -251,6 +339,8 @@ mod data {
     pub struct Schema {
         name: String,
         blocks: BlocksTable,
+        transactions: TransactionsTable,
+        receipts: ReceiptsTable,
         call_meta: CallMetaTable,
         call_cache: CallCacheTable,
     }
@@ -258,11 +348,15 @@ mod data {
     impl Schema {
         fn new(name: String) -> Self {
             let blocks = BlocksTable::new(&name);
+            let transactions = TransactionsTable::new(&name);
+            let receipts = ReceiptsTable::new(&name);
             let call_meta = CallMetaTable::new(&name);
             let call_cache = CallCacheTable::new(&name);
             Self {
                 name,
                 blocks,
+                transactions,
+                receipts,
                 call_meta,
                 call_cache,
             }
@@ -340,6 +434,41 @@ mod data {
                   data         jsonb not null
                 );
                 create index blocks_number ON {nsp}.blocks using btree(number);
+
+                create table {nsp}.transactions (
+                  hash                      bytea not null primary key,
+                  transaction_index         bytea  not null,
+                  block_hash                bytea not null,
+                  block_number              int8 not null,
+                  gas                       int8  not null,
+                  gas_price                 int8  not null,
+                  max_fee_per_gas           int8  not null,
+                  max_priority_fe_per_gas   int8  not null,
+                  input                     bytea not null,
+                  \"from\"                  bytea  not null,
+                  \"type\"                  bytea  not null,
+                  nonce                     int8  not null,
+                  value                     bytea not null,
+                  chain_id                  int8 not null
+                );
+                create index tx_hash ON {nsp}.transactions using btree(hash);
+
+                create table {nsp}.receipts (
+                  id                     bytea not null primary key,
+                  block_hash             bytea,
+                  block_number           int8,
+                  transaction_hash       bytea,
+                  transaction_index      varchar not null,
+                  transaction_log_index  varchar,
+                  log_index              varchar,
+                  data                   bytea  not null,
+                  topics                 text[] not null,
+                  address                bytea,
+                  log_type               varchar,
+                  removed                varchar
+                );
+
+                create index tx_receipt_index ON {nsp}.receipts using btree(transaction_hash, log_index);
 
                 create table {nsp}.call_cache (
 	              id               bytea not null primary key,
