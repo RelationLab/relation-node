@@ -99,6 +99,45 @@ mod data {
         allow_tables_to_appear_in_same_query!(ethereum_networks, ethereum_blocks);
 
         table! {
+            ethereum_transactions (transaction_index) {
+                block_hash -> Varchar,
+                block_number -> BigInt,
+                from -> Varchar,
+                gas -> BigInt,
+                gas_price -> BigInt,
+                max_fee_per_gas -> BigInt,
+                max_priority_fe_per_gas -> BigInt,
+                hash -> Varchar,
+                input -> Varchar,
+                nonce -> Varchar,
+                transaction_index -> Varchar,
+                value -> Varchar,
+                // "type" -> Varchar,
+                chain_id -> Varchar,
+                v -> Varchar,
+                r -> Varchar,
+                s -> Varchar,
+            }
+        }
+
+        table! {
+            ethereum_receipts (id) {
+                /// `id` is the transaction_hash + log_index
+                data -> Varchar,
+                topics -> Text[],
+                address -> Varchar,
+                logType -> Nullable<Varchar>,
+                removed -> Bool,
+                log_index -> BigInt,
+                block_hash -> Varchar,
+                block_number -> BigInt,
+                transaction_hash -> Varchar,
+                transaction_index -> Varchar,
+                transaction_log_index -> Nullable<Varchar>,
+            }
+        }
+
+        table! {
             /// `id` is the hash of contract address + encoded function call + block number.
             eth_call_cache (id) {
                 id -> Bytea,
