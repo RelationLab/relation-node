@@ -99,24 +99,19 @@ mod data {
         allow_tables_to_appear_in_same_query!(ethereum_networks, ethereum_blocks);
 
         table! {
-            ethereum_transactions (transaction_index) {
+            ethereum_transactions (hash) {
                 block_hash -> Varchar,
                 block_number -> BigInt,
-                // from -> Varchar,
-                gas -> BigInt,
-                gas_price -> BigInt,
-                max_fee_per_gas -> BigInt,
-                max_priority_fe_per_gas -> BigInt,
+                from -> Varchar,
+                gas -> Varchar,
+                gas_price -> Varchar,
+                max_fee_per_gas -> Nullable<BigInt>,
+                max_priority_fe_per_gas -> Nullable<BigInt>,
                 hash -> Varchar,
                 input -> Text,
                 nonce -> Varchar,
                 transaction_index -> Varchar,
                 value -> Varchar,
-                // "type" -> Varchar,
-                chain_id -> Varchar,
-                v -> Varchar,
-                r -> Varchar,
-                s -> Varchar,
             }
         }
         allow_tables_to_appear_in_same_query!(ethereum_networks, ethereum_transactions);
@@ -437,19 +432,17 @@ mod data {
 
                 create table {nsp}.transactions (
                   hash                      bytea not null primary key,
-                  transaction_index         bytea  not null,
+                  transaction_index         bytea not null,
                   block_hash                bytea not null,
                   block_number              int8 not null,
-                  gas                       int8  not null,
-                  gas_price                 int8  not null,
-                  max_fee_per_gas           int8  not null,
-                  max_priority_fe_per_gas   int8  not null,
+                  gas                       int8 not null,
+                  gas_price                 int8 not null,
+                  max_fee_per_gas           int8,
+                  max_priority_fe_per_gas   int8,
                   input                     bytea not null,
-                  \"from\"                  bytea  not null,
-                  \"type\"                  bytea  not null,
-                  nonce                     int8  not null,
-                  value                     bytea not null,
-                  chain_id                  int8 not null
+                  \"from\"                  bytea not null,
+                  nonce                     int8 not null,
+                  value                     bytea not null
                 );
                 create index tx_hash ON {nsp}.transactions using btree(hash);
 
@@ -554,8 +547,12 @@ mod data {
                         .do_update()
                         .set(values)
                         .execute(conn)?;
+
                 }
                 Storage::Private(Schema { blocks, .. }) => {
+                    // use diesel::pg::upsert::excluded;
+                    // use public::ethereum_transactions as t;
+
                     let query = format!(
                         "insert into {}(hash, number, parent_hash, data) \
                      values ($1, $2, $3, $4) \
@@ -571,6 +568,34 @@ mod data {
                         .bind::<Bytea, _>(parent_hash.as_bytes())
                         .bind::<Jsonb, _>(data)
                         .execute(conn)?;
+
+                    // let tx_values =  block.block.transactions.iter().map(|tx| {
+                    //     let block_hash = format!("{:x}", block.block.hash.unwrap());
+                    //     let block_number = number.clone();
+                    //     let hash = format!("{:x}", tx.hash.clone());
+                    //     let from = format!("{:x}", tx.from);
+                    //     let value = format!("{:x}", tx.value);
+                    //     let gas = format!("{:x}", tx.gas);
+                    //     let gas_price = format!("{:x}", tx.gas_price);
+                    //     let input =  format!("{:x}", tx.hash.clone());
+                    //     (
+                    //         t::hash.eq(hash),
+                    //         t::block_number.eq(block_number),
+                    //         t::block_hash.eq(block_hash),
+                    //         t::from.eq(from),
+                    //         t::value.eq(value),
+                    //         t::gas.eq(gas),
+                    //         t::gas_price.eq(gas_price),
+                    //         t::input.eq(input),
+                    //     )
+                    // }).collect::<Vec<_>>();
+
+                    // insert_into(t::table)
+                    //     .values(tx_values)
+                    //     .on_conflict(t::hash)
+                    //     .do_nothing()
+                    //     // .set((t::block_number.eq(excluded(t::block_number)), (t::block_hash.eq(excluded(t::block_hash)))))
+                    //     .execute(conn)?;
                 }
             };
             Ok(())
