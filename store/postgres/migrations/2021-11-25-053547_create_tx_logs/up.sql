@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS ethereum_receipts (
     id VARCHAR NOT NULL,
     block_hash VARCHAR NOT NULL,
     block_number VARCHAR NOT NULL,
-    data TEXT PRIMARY KEY,
+    data TEXT,
     topics VARCHAR UNIQUE NOT NULL,
     address VARCHAR NOT NULL,
     log_type VARCHAR,
