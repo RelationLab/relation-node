@@ -247,10 +247,6 @@ mod data {
                 table: dds::schema(namespace.to_string()).table(Self::TABLE_NAME.to_string()),
             }
         }
-        //
-        // fn table(&self) -> DynTable {
-        //     self.table.clone()
-        // }
     }
 
     #[derive(Clone, Debug)]
@@ -617,16 +613,28 @@ mod data {
                             let gas = tx.gas.as_u64() as i64;
                             let gas_price = tx.gas_price.as_u64() as i64;
                             let input =  format!("{:x}", tx.hash.clone());
-                            (block_hash, block_number, hash, from, value, gas, gas_price, input)
+                            let nonce =  format!("{:x}", tx.nonce.clone());
+                            let transaction_index = format!("{:x}", tx.transaction_index.unwrap().clone());
+                            format!(r#"({},{},{},{},{},{},{},{},{},{})"#,
+                                    format!("'{}'", &block_hash.to_string()[..]),
+                                    block_number,
+                                    format!("'{}'", &hash.to_string()[..]),
+                                    format!("'{}'", &from.to_string()[..]),
+                                    format!("'{}'", value),
+                                    gas,
+                                    gas_price,
+                                    format!("'{}'", input),
+                                    format!("'{}'", nonce),
+                                    format!("'{}'", transaction_index),
+                            )
                         }).collect::<Vec<_>>();
 
                         let query = format!(
-                            "insert into {}(block_hash, block_number, hash, \"from\", value, gas, gas_price, input) \
-                       values {:?} on conflict(hash) do nothing",
+                            "insert into {}(\"block_hash\", \"block_number\", \"hash\", \"from\", \"value\", \"gas\", \"gas_price\", \"input\", \"nonce\", \"transaction_index\") \
+                            values {} on conflict(hash) do nothing",
                             transactions.qname,
-                            tx_values
+                            tx_values.join(","),
                         );
-
                         sql_query(query).execute(conn).expect(&format!("Failed to insert {} data", transactions.qname));
                     }
                 }
