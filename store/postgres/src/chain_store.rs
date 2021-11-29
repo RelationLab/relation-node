@@ -431,18 +431,18 @@ mod data {
                 create index blocks_number ON {nsp}.blocks using btree(number);
 
                 create table {nsp}.transactions (
-                  hash                      bytea not null primary key,
-                  transaction_index         bytea not null,
-                  block_hash                bytea not null,
+                  hash                      varchar not null primary key,
+                  transaction_index         varchar not null,
+                  block_hash                varchar not null,
                   block_number              int8 not null,
                   gas                       int8 not null,
                   gas_price                 int8 not null,
                   max_fee_per_gas           int8,
                   max_priority_fe_per_gas   int8,
-                  input                     bytea not null,
-                  \"from\"                  bytea not null,
-                  nonce                     int8 not null,
-                  value                     bytea not null
+                  input                     varchar not null,
+                  \"from\"                  varchar not null,
+                  nonce                     varchar not null,
+                  value                     varchar not null
                 );
                 create index tx_hash ON {nsp}.transactions using btree(hash);
 
@@ -530,6 +530,7 @@ mod data {
             match self {
                 Storage::Shared => {
                     use public::ethereum_blocks as b;
+                    use public::ethereum_transactions as t;
 
                     let parent_hash = format!("{:x}", block.block.parent_hash);
                     let hash = format!("{:x}", block.block.hash.unwrap());
@@ -548,11 +549,42 @@ mod data {
                         .set(values)
                         .execute(conn)?;
 
-                }
-                Storage::Private(Schema { blocks, .. }) => {
-                    // use diesel::pg::upsert::excluded;
-                    // use public::ethereum_transactions as t;
 
+                    let tx_values =  block.block.transactions.iter().map(|tx| {
+                        let block_hash = format!("{:x}", block.block.hash.unwrap());
+                        let block_number = number.clone();
+                        let hash = format!("{:x}", tx.hash.clone());
+                        let from = format!("{:x}", tx.from);
+                        let value = format!("{:x}", tx.value);
+                        let gas = format!("{:x}", tx.gas);
+                        let gas_price = format!("{:x}", tx.gas_price);
+                        let input =  format!("{:x}", tx.hash.clone());
+                        let nonce =  format!("{:x}", tx.nonce.clone());
+                        let transaction_index = format!("{:x}", tx.transaction_index.unwrap().clone());
+                        (
+                            t::hash.eq(hash),
+                            t::block_number.eq(block_number),
+                            t::block_hash.eq(block_hash),
+                            t::from.eq(from),
+                            t::value.eq(value),
+                            t::gas.eq(gas),
+                            t::gas_price.eq(gas_price),
+                            t::input.eq(input),
+                            t::nonce.eq(nonce),
+                            t::transaction_index.eq(transaction_index),
+                        )
+                    }).collect::<Vec<_>>();
+
+                    insert_into(t::table)
+                        .values(tx_values)
+                        .on_conflict(t::hash)
+                        .do_nothing()
+                        // .set((t::block_number.eq(excluded(t::block_number)), (t::block_hash.eq(excluded(t::block_hash)))))
+                        .execute(conn)?;
+
+                }
+                Storage::Private(Schema { blocks, transactions, ..}) => {
+                    // use diesel::pg::upsert::excluded;
                     let query = format!(
                         "insert into {}(hash, number, parent_hash, data) \
                      values ($1, $2, $3, $4) \
@@ -562,6 +594,7 @@ mod data {
                     );
                     let parent_hash = block.block.parent_hash;
                     let hash = block.block.hash.unwrap();
+
                     sql_query(query)
                         .bind::<Bytea, _>(hash.as_bytes())
                         .bind::<BigInt, _>(number)
@@ -569,33 +602,28 @@ mod data {
                         .bind::<Jsonb, _>(data)
                         .execute(conn)?;
 
-                    // let tx_values =  block.block.transactions.iter().map(|tx| {
-                    //     let block_hash = format!("{:x}", block.block.hash.unwrap());
-                    //     let block_number = number.clone();
-                    //     let hash = format!("{:x}", tx.hash.clone());
-                    //     let from = format!("{:x}", tx.from);
-                    //     let value = format!("{:x}", tx.value);
-                    //     let gas = format!("{:x}", tx.gas);
-                    //     let gas_price = format!("{:x}", tx.gas_price);
-                    //     let input =  format!("{:x}", tx.hash.clone());
-                    //     (
-                    //         t::hash.eq(hash),
-                    //         t::block_number.eq(block_number),
-                    //         t::block_hash.eq(block_hash),
-                    //         t::from.eq(from),
-                    //         t::value.eq(value),
-                    //         t::gas.eq(gas),
-                    //         t::gas_price.eq(gas_price),
-                    //         t::input.eq(input),
-                    //     )
-                    // }).collect::<Vec<_>>();
+                    if block.block.transactions.len() > 0 {
+                        let tx_values =  block.block.transactions.iter().map(|tx| {
+                            let block_hash = format!("{:x}", block.block.hash.unwrap());
+                            let block_number = number.clone();
+                            let hash = format!("{:x}", tx.hash.clone());
+                            let from = format!("{:x}", tx.from);
+                            let value = format!("{:x}", tx.value);
+                            let gas = tx.gas.as_u64() as i64;
+                            let gas_price = tx.gas_price.as_u64() as i64;
+                            let input =  format!("{:x}", tx.hash.clone());
+                            (block_hash, block_number, hash, from, value, gas, gas_price, input)
+                        }).collect::<Vec<_>>();
 
-                    // insert_into(t::table)
-                    //     .values(tx_values)
-                    //     .on_conflict(t::hash)
-                    //     .do_nothing()
-                    //     // .set((t::block_number.eq(excluded(t::block_number)), (t::block_hash.eq(excluded(t::block_hash)))))
-                    //     .execute(conn)?;
+                        let query = format!(
+                            "insert into {}(block_hash, block_number, hash, \"from\", value, gas, gas_price, input) \
+                       values {:?} on conflict(hash) do nothing",
+                            transactions.qname,
+                            tx_values
+                        );
+
+                        sql_query(query).execute(conn).expect(&format!("Failed to insert {} data", transactions.qname));
+                    }
                 }
             };
             Ok(())
