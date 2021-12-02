@@ -60,7 +60,7 @@ mod data {
         types::{FromSql, ToSql},
     };
     use diesel::{
-        sql_types::{BigInt, Bytea, Integer, Jsonb},
+        sql_types::{BigInt, Bytea, Integer, Jsonb, VarChar, Bool},
         update,
     };
     use diesel_dynamic_schema as dds;
@@ -86,6 +86,41 @@ mod data {
     mod public {
         pub(super) use super::super::public::ethereum_networks;
 
+        //chain table
+        table! {
+            chain_transactions (hash) {
+                block_hash -> Varchar,
+                block_number -> BigInt,
+                from -> Varchar,
+                gas -> Varchar,
+                gas_price -> Varchar,
+                max_fee_per_gas -> Nullable<BigInt>,
+                max_priority_fe_per_gas -> Nullable<BigInt>,
+                hash -> Varchar,
+                input -> Text,
+                nonce -> Varchar,
+                transaction_index -> Varchar,
+                value -> Varchar,
+            }
+        }
+        table! {
+            chain_receipts (id) {
+                /// `id` is the transaction_hash + log_index
+                id -> Bytea,
+                data -> Varchar,
+                topics -> Text,
+                address -> Varchar,
+                log_type -> Nullable<Varchar>,
+                removed -> Nullable<Bool>,
+                log_index -> Nullable<Varchar>,
+                block_hash -> Bytea,
+                block_number -> Nullable<BigInt>,
+                transaction_hash -> Nullable<Varchar>,
+                transaction_index -> Nullable<Varchar>,
+                transaction_log_index -> Nullable<Varchar>,
+            }
+        }
+        ///
         table! {
             ethereum_blocks (hash) {
                 hash -> Varchar,
@@ -99,36 +134,33 @@ mod data {
         allow_tables_to_appear_in_same_query!(ethereum_networks, ethereum_blocks);
 
         table! {
-
-            ethereum_transactions (transaction_index) {
+            ethereum_transactions (hash) {
                 block_hash -> Varchar,
                 block_number -> BigInt,
                 from -> Varchar,
-                gas -> BigInt,
-                gas_price -> BigInt,
-                max_fee_per_gas -> BigInt,
-                max_priority_fe_per_gas -> BigInt,
+                gas -> Varchar,
+                gas_price -> Varchar,
+                max_fee_per_gas -> Nullable<BigInt>,
+                max_priority_fe_per_gas -> Nullable<BigInt>,
                 hash -> Varchar,
-                input -> Varchar,
+                input -> Text,
                 nonce -> Varchar,
                 transaction_index -> Varchar,
                 value -> Varchar,
-                // "type" -> Varchar,
-                chain_id -> Varchar,
-                v -> Varchar,
-                r -> Varchar,
-                s -> Varchar,
             }
         }
+        allow_tables_to_appear_in_same_query!(ethereum_networks, ethereum_transactions);
+
 
 
         table! {
             ethereum_receipts (id) {
                 /// `id` is the transaction_hash + log_index
+                id -> Bytea,
                 data -> Varchar,
-                topics -> Text[],
+                topics -> Text,
                 address -> Varchar,
-                logType -> Nullable<Varchar>,
+                log_type -> Nullable<Varchar>,
                 removed -> Bool,
                 log_index -> BigInt,
                 block_hash -> Varchar,
@@ -138,6 +170,8 @@ mod data {
                 transaction_log_index -> Nullable<Varchar>,
             }
         }
+        allow_tables_to_appear_in_same_query!(ethereum_networks, ethereum_receipts);
+
 
 
         table! {
@@ -543,14 +577,6 @@ mod data {
                         b::data.eq(data),
                     );
 
-                    insert_into(b::table)
-                        .values(values.clone())
-                        .on_conflict(b::hash)
-                        .do_update()
-                        .set(values)
-                        .execute(conn)?;
-
-
                     let tx_values =  block.block.transactions.iter().map(|tx| {
                         let block_hash = format!("{:x}", block.block.hash.unwrap());
                         let block_number = number.clone();
@@ -584,7 +610,9 @@ mod data {
                         .execute(conn)?;
 
                 }
-                Storage::Private(Schema { blocks, transactions, ..}) => {
+
+                Storage::Private(Schema { blocks, transactions, receipts,..}) => {
+                    
                     // use diesel::pg::upsert::excluded;
                     let query = format!(
                         "insert into {}(hash, number, parent_hash, data) \
@@ -602,6 +630,170 @@ mod data {
                         .bind::<Bytea, _>(parent_hash.as_bytes())
                         .bind::<Jsonb, _>(data)
                         .execute(conn)?;
+
+
+                    //
+                    // receipts
+                    use public::chain_receipts as cr;
+                    let block_hash = format!("'{:x}'", block.block.hash.unwrap());
+                    for recipts in block.transaction_receipts.iter() {     
+                        //recipt sql insert          
+                        let values = recipts.logs.iter().map(|log|{
+                            let mut data = log.data.0.iter()
+                            .enumerate()
+                            .map(|(u, i)|{
+                                if u != 0{
+                                    i.to_string()
+                                }else{
+                                    "".to_string()
+                                }
+                            }).collect::<String>();
+                            data = format!("'{}'", data);
+
+                            let mut topics = log.topics
+                            .iter()
+                            .enumerate()
+                            .map(|(u, i)| 
+                                if u != 0{
+                                    i.to_string()
+                                }else{
+                                    "".to_string()
+                                }
+                            )
+                            .collect::<String>();
+                            topics = format!("'{}'", topics);
+
+                            let address = format!("'{:x}'", log.address);
+                            let log_type = match &log.log_type {
+                                Some(s) => format!("'{}'", s),
+                                None => format!("null"),
+                            };
+
+                            let removed = match log.removed {
+                                Some(s) => format!("{}", s),
+                                None => format!("null"),
+                            };
+                            let log_index = match log.log_index {
+                                Some(s) => format!("{}", s),
+                                None => format!("null"),
+                            };
+                            let transaction_hash = match log.transaction_hash {
+                                Some(s) => format!("'{:x}'", s),
+                                None => format!("null"),
+                            };
+
+                            let transaction_index = match log.transaction_log_index{
+                                Some(s) => format!("'{:x}'", s),
+                                None => format!("null"),
+                            };
+                            let transaction_log_index = match log.transaction_log_index {
+                                Some(s) => format!("'{:x}'", s),
+                                None => format!("null"),
+                            };
+
+
+                            format!(r#"({},{},{},{},{},{},{},{},{},{},{},{})"#,
+                                transaction_hash,
+                                block_hash,
+                                number,
+                                data,
+                                topics,
+                                address,
+                                removed,
+                                log_index,
+                                log_type,
+                                transaction_hash,
+                                transaction_index,
+                                transaction_log_index,
+                            )
+                        }).collect::<Vec<_>>();
+
+
+                        if values.len() == 0{
+                            continue;
+                        }
+                        let query = format!(
+                            r#"insert into {}("id", "block_hash", "block_number", "data", "topics", "address", 
+                                "removed", "log_index", "log_type", "transaction_hash", "transaction_index", "transaction_log_index") 
+                                values {} on conflict(id) do nothing"#,
+                            receipts.qname,
+                            values.join(","),
+                        );
+                        sql_query(query).execute(conn);
+                        // println!("{}", query);
+                        // println!("{:?}", rst);
+                        // // receipt insert_into
+                        // let log_values = recipts.logs.iter().map(|log|{
+                        //     let data = log.data.0.iter()
+                        //     .enumerate()
+                        //     .map(|(u, i)|{
+                        //         if u != 0{
+                        //             i.to_string()
+                        //         }else{
+                        //             "".to_string()
+                        //         }
+                        //     }).collect::<String>();
+
+                        //     let topics = log.topics
+                        //     .iter()
+                        //     .enumerate()
+                        //     .map(|(u, i)| 
+                        //         if u != 0{
+                        //             i.to_string()
+                        //         }else{
+                        //             "".to_string()
+                        //         }
+                        //     )
+                        //     .collect::<String>();
+
+                        //     let address = format!("'{:x}'", log.address);
+                        //     let log_type = log.log_type.as_ref();
+
+                        //     let removed = log.removed;
+
+                        //     let log_index = match log.log_index {
+                        //         Some(s) => format!("{:x}", s),
+                        //         None => format!("null"),
+                        //     };
+                        //     let transaction_hash = match log.transaction_hash {
+                        //         Some(s) => format!("{:x}", s),
+                        //         None => format!("null"),
+                        //     };
+
+                        //     let transaction_index = match log.transaction_log_index{
+                        //         Some(s) => Some(s.as_u64() as i64),
+                        //         None => None,
+                        //     };
+
+                        //     let transaction_log_index = match log.transaction_log_index {
+                        //         Some(s) => format!("{:x}", s),
+                        //         None => format!("null"),
+                        //     };
+
+                        //     (
+                        //         cr::id.eq(block_hash.as_bytes()),
+                        //         cr::block_hash.eq(block_hash.as_bytes()),
+                        //         cr::data.eq(data),
+                        //         cr::topics.eq(topics),
+                        //         cr::address.eq(address),
+                        //         cr::log_type.eq(log_type),
+                        //         cr::removed.eq(removed),
+                        //         cr::log_index.eq(log_index),
+                        //         cr::block_number.eq(number),
+                        //         cr::transaction_hash.eq(transaction_hash),
+                        //         cr::transaction_index.eq(transaction_index),
+                        //         cr::transaction_log_index.eq(transaction_log_index),
+                        //     )
+                        // }).collect::<Vec<_>>();
+
+                        // let query = insert_into(cr::table)
+                        //     .values(log_values)
+                        //     .on_conflict(cr::block_hash)
+                        //     .do_nothing();
+                        
+                        // let sql = format!("{}",  diesel::debug_query::<Pg, _>(&query).to_string());
+                        // let rst = sql_query(sql).execute(conn);
+                    }
 
                     if block.block.transactions.len() > 0 {
                         let tx_values =  block.block.transactions.iter().map(|tx| {
