@@ -16,7 +16,6 @@ members = [
     "store/test-store",
     "graph",
     "tests",
-    "rust-web3"
 ]
 
 
