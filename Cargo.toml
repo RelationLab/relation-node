@@ -16,6 +16,7 @@ members = [
     "store/test-store",
     "graph",
     "tests",
+    "rust-web3"
 ]
 
 
@@ -28,3 +29,9 @@ graphql-parser = {git="https://github.com/graphql-rust/graphql-parser", rev="451
 incremental = false
 [profile.test]
 incremental = false
+
+# [package]
+# name = "relation-node"
+# version = "0.0.1"
+# authors = ["An Devloper <an.devloper@example.com>"]
+# default-run = "target/debug/relation-node"

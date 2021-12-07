@@ -60,7 +60,7 @@ mod data {
         types::{FromSql, ToSql},
     };
     use diesel::{
-        sql_types::{BigInt, Bytea, Integer, Jsonb, VarChar, Bool},
+        sql_types::{BigInt, Bytea, Integer, Jsonb},
         update,
     };
     use diesel_dynamic_schema as dds;
@@ -117,10 +117,10 @@ mod data {
                 block_number -> Nullable<BigInt>,
                 transaction_hash -> Nullable<Varchar>,
                 transaction_index -> Nullable<Varchar>,
-                transaction_log_index -> Nullable<Varchar>,
+                // transaction_log_index -> Nullable<Varchar>,
             }
         }
-        ///
+
         table! {
             ethereum_blocks (hash) {
                 hash -> Varchar,
@@ -151,8 +151,6 @@ mod data {
         }
         allow_tables_to_appear_in_same_query!(ethereum_networks, ethereum_transactions);
 
-
-
         table! {
             ethereum_receipts (id) {
                 /// `id` is the transaction_hash + log_index
@@ -171,8 +169,6 @@ mod data {
             }
         }
         allow_tables_to_appear_in_same_query!(ethereum_networks, ethereum_receipts);
-
-
 
         table! {
             /// `id` is the hash of contract address + encoded function call + block number.
@@ -475,25 +471,31 @@ mod data {
                   max_fee_per_gas           int8,
                   max_priority_fe_per_gas   int8,
                   input                     varchar not null,
-                  \"from\"                  varchar not null,
+                  \"from\"                  bytea not null,
+                  \"to\"                    bytea,
+                  trx_type                  int8,
                   nonce                     varchar not null,
                   value                     varchar not null
                 );
                 create index tx_hash ON {nsp}.transactions using btree(hash);
 
                 create table {nsp}.receipts (
-                  id                     bytea not null primary key,
-                  block_hash             bytea,
-                  block_number           int8,
-                  transaction_hash       bytea,
-                  transaction_index      varchar not null,
-                  transaction_log_index  varchar,
-                  log_index              varchar,
-                  data                   bytea  not null,
-                  topics                 text[] not null,
-                  address                bytea,
-                  log_type               varchar,
-                  removed                varchar
+                  id                    bytea not null primary key,
+                  block_hash            bytea,
+                  block_number          int8,
+                  data                  bytea  not null,
+                  topics                text[],
+                  address               bytea,
+                  removed               bool,
+                  log_index             varchar,
+                  log_type              int8,
+                  transaction_hash      bytea,
+                  transaction_index     varchar not null,
+                  cumulative_gas_used   int8,
+                  effective_gas_used    int8,
+                  gas_used              int8,
+                  \"from\"              bytea,
+                  \"to\"                bytea
                 );
 
                 create index tx_receipt_index ON {nsp}.receipts using btree(transaction_hash, log_index);
@@ -564,43 +566,49 @@ mod data {
 
             match self {
                 Storage::Shared => {
-                    use public::ethereum_blocks as b;
+                    // use public::ethereum_blocks as b;
                     use public::ethereum_transactions as t;
 
-                    let parent_hash = format!("{:x}", block.block.parent_hash);
-                    let hash = format!("{:x}", block.block.hash.unwrap());
-                    let values = (
-                        b::hash.eq(hash),
-                        b::number.eq(number),
-                        b::parent_hash.eq(parent_hash),
-                        b::network_name.eq(chain),
-                        b::data.eq(data),
-                    );
+                    let _parent_hash = format!("{:x}", block.block.parent_hash);
+                    let _hash = format!("{:x}", block.block.hash.unwrap());
+                    // let values = (
+                    //     b::hash.eq(hash),
+                    //     b::number.eq(number),
+                    //     b::parent_hash.eq(parent_hash),
+                    //     b::network_name.eq(chain),
+                    //     b::data.eq(data),
+                    // );
 
-                    let tx_values =  block.block.transactions.iter().map(|tx| {
-                        let block_hash = format!("{:x}", block.block.hash.unwrap());
-                        let block_number = number.clone();
-                        let hash = format!("{:x}", tx.hash.clone());
-                        let from = format!("{:x}", tx.from);
-                        let value = format!("{:x}", tx.value);
-                        let gas = format!("{:x}", tx.gas);
-                        let gas_price = format!("{:x}", tx.gas_price);
-                        let input =  format!("{:x}", tx.hash.clone());
-                        let nonce =  format!("{:x}", tx.nonce.clone());
-                        let transaction_index = format!("{:x}", tx.transaction_index.unwrap().clone());
-                        (
-                            t::hash.eq(hash),
-                            t::block_number.eq(block_number),
-                            t::block_hash.eq(block_hash),
-                            t::from.eq(from),
-                            t::value.eq(value),
-                            t::gas.eq(gas),
-                            t::gas_price.eq(gas_price),
-                            t::input.eq(input),
-                            t::nonce.eq(nonce),
-                            t::transaction_index.eq(transaction_index),
-                        )
-                    }).collect::<Vec<_>>();
+                    let tx_values = block
+                        .block
+                        .transactions
+                        .iter()
+                        .map(|tx| {
+                            let block_hash = format!("{:x}", block.block.hash.unwrap());
+                            let block_number = number.clone();
+                            let hash = format!("{:x}", tx.hash.clone());
+                            let from = format!("{:x}", tx.from);
+                            let value = format!("{:x}", tx.value);
+                            let gas = format!("{:x}", tx.gas);
+                            let gas_price = format!("{:x}", tx.gas_price);
+                            let input = format!("{:x}", tx.hash.clone());
+                            let nonce = format!("{:x}", tx.nonce.clone());
+                            let transaction_index =
+                                format!("{:x}", tx.transaction_index.unwrap().clone());
+                            (
+                                t::hash.eq(hash),
+                                t::block_number.eq(block_number),
+                                t::block_hash.eq(block_hash),
+                                t::from.eq(from),
+                                t::value.eq(value),
+                                t::gas.eq(gas),
+                                t::gas_price.eq(gas_price),
+                                t::input.eq(input),
+                                t::nonce.eq(nonce),
+                                t::transaction_index.eq(transaction_index),
+                            )
+                        })
+                        .collect::<Vec<_>>();
 
                     insert_into(t::table)
                         .values(tx_values)
@@ -608,11 +616,14 @@ mod data {
                         .do_nothing()
                         // .set((t::block_number.eq(excluded(t::block_number)), (t::block_hash.eq(excluded(t::block_hash)))))
                         .execute(conn)?;
-
                 }
 
-                Storage::Private(Schema { blocks, transactions, receipts,..}) => {
-                    
+                Storage::Private(Schema {
+                    blocks,
+                    transactions,
+                    receipts,
+                    ..
+                }) => {
                     // use diesel::pg::upsert::excluded;
                     let query = format!(
                         "insert into {}(hash, number, parent_hash, data) \
@@ -631,132 +642,160 @@ mod data {
                         .bind::<Jsonb, _>(data)
                         .execute(conn)?;
 
-
                     //
                     // receipts
-                    use public::chain_receipts as cr;
                     let block_hash = format!("'{:x}'", block.block.hash.unwrap());
-                    for recipts in block.transaction_receipts.iter() {     
-                        //recipt sql insert          
-                        let values = recipts.logs.iter().map(|log|{
-                            let mut data = log.data.0.iter()
-                            .enumerate()
-                            .map(|(u, i)|{
-                                if u != 0{
-                                    i.to_string()
-                                }else{
-                                    "".to_string()
-                                }
-                            }).collect::<String>();
-                            data = format!("'{}'", data);
 
-                            let mut topics = log.topics
+                    for recipts in block.transaction_receipts.iter() {
+                        //recipt sql insert
+                        let cumulative_gas_used = format!("{}", recipts.cumulative_gas_used);
+
+                        let effective_gas_used = format!("{}", recipts.effective_gas_used);
+
+                        let gas_used = match recipts.gas_used {
+                            Some(s) => format!("{}", s),
+                            None => format!("null"),
+                        };
+                        let from = match recipts.from {
+                            Some(s) => format!("'{:x}'", s),
+                            None => format!("null"),
+                        };
+                        let to = match recipts.to {
+                            Some(s) => format!("'{:x}'", s),
+                            None => format!("null"),
+                        };
+
+                        let values = recipts
+                            .logs
                             .iter()
-                            .enumerate()
-                            .map(|(u, i)| 
-                                if u != 0{
-                                    i.to_string()
-                                }else{
-                                    "".to_string()
-                                }
-                            )
-                            .collect::<String>();
-                            topics = format!("'{}'", topics);
+                            .map(|log| {
+                                let _data = log
+                                    .data
+                                    .0
+                                    .iter()
+                                    .fold(String::new(), |s, x| s + &x.to_string());
+                                let data = format!("'{}'", _data);
 
-                            let address = format!("'{:x}'", log.address);
-                            let log_type = match &log.log_type {
-                                Some(s) => format!("'{}'", s),
-                                None => format!("null"),
-                            };
+                                let _topics = log
+                                    .topics
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(_, i)| format!("{:x}", i))
+                                    .collect::<Vec<String>>();
+                                let topics = format!("'{{{}}}'", _topics.join(","));
 
-                            let removed = match log.removed {
-                                Some(s) => format!("{}", s),
-                                None => format!("null"),
-                            };
-                            let log_index = match log.log_index {
-                                Some(s) => format!("{}", s),
-                                None => format!("null"),
-                            };
-                            let transaction_hash = match log.transaction_hash {
-                                Some(s) => format!("'{:x}'", s),
-                                None => format!("null"),
-                            };
+                                let address = format!("'{:x}'", log.address);
+                                let log_type = match &log.log_type {
+                                    Some(s) => format!("'{}'", s),
+                                    None => format!("null"),
+                                };
 
-                            let transaction_index = match log.transaction_log_index{
-                                Some(s) => format!("'{:x}'", s),
-                                None => format!("null"),
-                            };
-                            let transaction_log_index = match log.transaction_log_index {
-                                Some(s) => format!("'{:x}'", s),
-                                None => format!("null"),
-                            };
+                                let removed = match log.removed {
+                                    Some(s) => format!("{}", s),
+                                    None => format!("null"),
+                                };
+                                let log_index = match log.log_index {
+                                    Some(s) => format!("{}", s),
+                                    None => format!("null"),
+                                };
+                                let transaction_hash = match log.transaction_hash {
+                                    Some(s) => format!("'{:x}'", s),
+                                    None => format!("null"),
+                                };
 
+                                let transaction_index = match log.transaction_index {
+                                    Some(s) => format!("'{:x}'", s),
+                                    None => format!("null"),
+                                };
 
-                            format!(r#"({},{},{},{},{},{},{},{},{},{},{},{})"#,
-                                transaction_hash,
-                                block_hash,
-                                number,
-                                data,
-                                topics,
-                                address,
-                                removed,
-                                log_index,
-                                log_type,
-                                transaction_hash,
-                                transaction_index,
-                                transaction_log_index,
-                            )
-                        }).collect::<Vec<_>>();
+                                format!(
+                                    r#"({},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{})"#,
+                                    transaction_hash,
+                                    block_hash,
+                                    number,
+                                    data,
+                                    topics,
+                                    address,
+                                    removed,
+                                    log_index,
+                                    log_type,
+                                    transaction_hash,
+                                    transaction_index,
+                                    cumulative_gas_used,
+                                    effective_gas_used,
+                                    gas_used,
+                                    from,
+                                    to,
+                                )
+                            })
+                            .collect::<Vec<_>>();
 
-
-                        if values.len() == 0{
+                        if values.len() == 0 {
                             continue;
                         }
                         let query = format!(
                             r#"insert into {}("id", "block_hash", "block_number", "data", "topics", "address", 
-                                "removed", "log_index", "log_type", "transaction_hash", "transaction_index", "transaction_log_index") 
+                                "removed", "log_index", "log_type", "transaction_hash", "transaction_index", 
+                                "cumulative_gas_used", "effective_gas_used", "gas_used", "from", "to") 
                                 values {} on conflict(id) do nothing"#,
                             receipts.qname,
                             values.join(","),
                         );
-                        sql_query(query).execute(conn);
-                        // println!("{}", query);
-                        // println!("{:?}", rst);
+                        sql_query(&query).execute(conn).expect(&format!(
+                            "Failed to insert {} ,sql:{}",
+                            receipts.qname, &query
+                        ));
                     }
 
+                    // block transaction insert into db
                     if block.block.transactions.len() > 0 {
-                        let tx_values =  block.block.transactions.iter().map(|tx| {
-                            let block_hash = format!("{:x}", block.block.hash.unwrap());
-                            let block_number = number.clone();
-                            let hash = format!("{:x}", tx.hash.clone());
-                            let from = format!("{:x}", tx.from);
-                            let value = format!("{:x}", tx.value);
-                            let gas = tx.gas.as_u64() as i64;
-                            let gas_price = tx.gas_price.as_u64() as i64;
-                            let input =  format!("{:x}", tx.hash.clone());
-                            let nonce =  format!("{:x}", tx.nonce.clone());
-                            let transaction_index = format!("{:x}", tx.transaction_index.unwrap().clone());
-                            format!(r#"({},{},{},{},{},{},{},{},{},{})"#,
+                        let tx_values = block
+                            .block
+                            .transactions
+                            .iter()
+                            .map(|tx| {
+                                let block_hash = format!("{:x}", block.block.hash.unwrap());
+                                let block_number = number.clone();
+                                let hash = format!("{:x}", tx.hash.clone());
+
+                                let trx_type = tx.gas.as_u64() as i64;
+                                let value = format!("{:x}", tx.value);
+                                let gas = tx.gas.as_u64() as i64;
+                                let gas_price = tx.gas_price.as_u64() as i64;
+                                let input = format!("{:x}", tx.hash.clone());
+                                let nonce = format!("{:x}", tx.nonce.clone());
+                                let transaction_index =
+                                    format!("{:x}", tx.transaction_index.unwrap().clone());
+                                format!(
+                                    r#"({},{},{},{},{},{},{},{},{},{},{},{})"#,
                                     format!("'{}'", &block_hash.to_string()[..]),
                                     block_number,
                                     format!("'{}'", &hash.to_string()[..]),
-                                    format!("'{}'", &from.to_string()[..]),
+                                    format!("'{:x}'", tx.from),
+                                    match tx.to {
+                                        Some(s) => format!("'{:x}'", s),
+                                        None => format!("''"),
+                                    },
+                                    trx_type,
                                     format!("'{}'", value),
                                     gas,
                                     gas_price,
                                     format!("'{}'", input),
                                     format!("'{}'", nonce),
                                     format!("'{}'", transaction_index),
-                            )
-                        }).collect::<Vec<_>>();
+                                )
+                            })
+                            .collect::<Vec<_>>();
 
                         let query = format!(
-                            "insert into {}(\"block_hash\", \"block_number\", \"hash\", \"from\", \"value\", \"gas\", \"gas_price\", \"input\", \"nonce\", \"transaction_index\") \
+                            "insert into {}(\"block_hash\", \"block_number\", \"hash\", \"from\", \"to\",\"trx_type\",\"value\", \"gas\", \"gas_price\", \"input\", \"nonce\", \"transaction_index\") \
                             values {} on conflict(hash) do nothing",
                             transactions.qname,
                             tx_values.join(","),
                         );
-                        sql_query(query).execute(conn).expect(&format!("Failed to insert {} data", transactions.qname));
+                        sql_query(query)
+                            .execute(conn)
+                            .expect(&format!("Failed to insert {} data", transactions.qname));
                     }
                 }
             };

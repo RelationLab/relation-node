@@ -29,7 +29,9 @@ semver = "1.0.3"
 ethabi = { git = "https://github.com/graphprotocol/ethabi.git", branch = "master" }
 
 # We have a couple custom patches to web3.
-web3 = { git = "https://github.com/graphprotocol/rust-web3", branch = "master" }
+# web3 = { git = "https://github.com/graphprotocol/rust-web3", branch = "master" }
+web3 = {path="../../rust-web3"}
+
 itertools = "0.10.0"
 
 graph-runtime-wasm = { path = "../../runtime/wasm" }

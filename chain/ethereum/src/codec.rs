@@ -144,6 +144,12 @@ impl<'a> TransactionTraceAt<'a> {
 impl<'a> Into<web3::types::Transaction> for TransactionTraceAt<'a> {
     fn into(self) -> web3::types::Transaction {
         web3::types::Transaction {
+            // todo no value
+            max_fee_per_gas: Some(U256::from(0)),
+            max_priority_fee_per_gas: Some(U256::from(0)),
+            chain_id: Some(U64::from(0)),
+            trx_type: U256::from(0),
+
             hash: H256::from_slice(&self.trace.hash),
             nonce: U256::from(self.trace.nonce),
             block_hash: Some(H256::from_slice(&self.block.hash)),
@@ -232,6 +238,12 @@ impl Into<EthereumBlockWithCalls> for &Block {
                     .iter()
                     .filter_map(|t| {
                         t.receipt.as_ref().map(|r| w3TransactionReceipt {
+                            // todo have no value
+                            effective_gas_used: U256::from(0),
+                            from:None,
+                            to:None,
+                            logs_type:None,
+
                             transaction_hash: H256::from_slice(&t.hash),
                             transaction_index: U64::from(t.index),
                             block_hash: Some(H256::from_slice(&self.hash)),

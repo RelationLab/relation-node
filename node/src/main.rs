@@ -134,20 +134,20 @@ async fn main() {
     let query_only = config.query_only(&node_id);
 
     // Obtain subgraph related command-line arguments
-    let subgraph = opt.subgraph.clone();
+    // let subgraph = opt.subgraph.clone();
 
     // Obtain ports to use for the GraphQL server(s)
-    let http_port = opt.http_port;
-    let ws_port = opt.ws_port;
+    // let http_port = opt.http_port;
+    // let ws_port = opt.ws_port;
 
     // Obtain JSON-RPC server port
-    let json_rpc_port = opt.admin_port;
+    // let json_rpc_port = opt.admin_port;
 
     // Obtain index node server port
-    let index_node_port = opt.index_node_port;
+    // let index_node_port = opt.index_node_port;
 
     // Obtain metrics server port
-    let metrics_port = opt.metrics_port;
+    // let metrics_port = opt.metrics_port;
 
     info!(logger, "Starting up");
 
@@ -165,11 +165,11 @@ async fn main() {
     let logger_factory = LoggerFactory::new(logger.clone(), elastic_config);
 
     // Try to create IPFS clients for each URL specified in `--ipfs`
-    let ipfs_clients: Vec<_> = create_ipfs_clients(&logger, &opt.ipfs);
+    // let ipfs_clients: Vec<_> = create_ipfs_clients(&logger, &opt.ipfs);
 
     // Convert the clients into a link resolver. Since we want to get past
     // possible temporary DNS failures, make the resolver retry
-    let link_resolver = Arc::new(LinkResolver::from(ipfs_clients));
+    // let link_resolver = Arc::new(LinkResolver::from(ipfs_clients));
 
     // Set up Prometheus registry
     let prometheus_registry = Arc::new(Registry::new());
@@ -180,8 +180,9 @@ async fn main() {
     let mut metrics_server =
         PrometheusMetricsServer::new(&logger_factory, prometheus_registry.clone());
 
-    // Ethereum clients; query nodes ignore all ethereum clients and never
-    // connect to them directly
+
+    // // Ethereum clients; query nodes ignore all ethereum clients and never
+    // // connect to them directly
     let eth_networks = if query_only {
         EthereumNetworks::new()
     } else {
@@ -198,7 +199,8 @@ async fn main() {
             .expect("Failed to parse Firehose networks")
     };
 
-    let graphql_metrics_registry = metrics_registry.clone();
+
+    // let graphql_metrics_registry = metrics_registry.clone();
 
     let contention_logger = logger.clone();
 
@@ -231,70 +233,70 @@ async fn main() {
         );
         let blockchain_map = Arc::new(blockchain_map);
 
-        let load_manager = Arc::new(LoadManager::new(
-            &logger,
-            expensive_queries,
-            metrics_registry.clone(),
-        ));
-        let graphql_runner = Arc::new(GraphQlRunner::new(
-            &logger,
-            network_store.clone(),
-            subscription_manager.clone(),
-            load_manager,
-        ));
-        let mut graphql_server = GraphQLQueryServer::new(
-            &logger_factory,
-            graphql_metrics_registry,
-            graphql_runner.clone(),
-            node_id.clone(),
-        );
-        let subscription_server =
-            GraphQLSubscriptionServer::new(&logger, graphql_runner.clone(), network_store.clone());
+        // let load_manager = Arc::new(LoadManager::new(
+        //     &logger,
+        //     expensive_queries,
+        //     metrics_registry.clone(),
+        // ));
+        // let graphql_runner = Arc::new(GraphQlRunner::new(
+        //     &logger,
+        //     network_store.clone(),
+        //     subscription_manager.clone(),
+        //     load_manager,
+        // ));
+        // let mut graphql_server = GraphQLQueryServer::new(
+        //     &logger_factory,
+        //     graphql_metrics_registry,
+        //     graphql_runner.clone(),
+        //     node_id.clone(),
+        // );
+        // let subscription_server =
+        //     GraphQLSubscriptionServer::new(&logger, graphql_runner.clone(), network_store.clone());
 
-        let mut index_node_server = IndexNodeServer::new(
-            &logger_factory,
-            graphql_runner.clone(),
-            network_store.clone(),
-            link_resolver.clone(),
-            network_store.subgraph_store().clone(),
-        );
+        // let mut index_node_server = IndexNodeServer::new(
+        //     &logger_factory,
+        //     graphql_runner.clone(),
+        //     network_store.clone(),
+        //     link_resolver.clone(),
+        //     network_store.subgraph_store().clone(),
+        // );
 
         // Spawn Ethereum network indexers for all networks that are to be indexed
-        opt.network_subgraphs
-            .iter()
-            .filter(|network_subgraph| network_subgraph.starts_with("ethereum/"))
-            .for_each(|network_subgraph| {
-                let network_name = network_subgraph.replace("ethereum/", "");
-                let mut indexer = network_indexer::NetworkIndexer::new(
-                    &logger,
-                    eth_networks
-                        .adapter_with_capabilities(
-                            network_name.clone(),
-                            &NodeCapabilities {
-                                archive: false,
-                                traces: false,
-                            },
-                        )
-                        .expect(&*format!("adapter for network, {}", network_name))
-                        .clone(),
-                    network_store.subgraph_store(),
-                    metrics_registry.clone(),
-                    format!("network/{}", network_subgraph).into(),
-                    None,
-                    network_name,
-                );
-                graph::spawn(
-                    indexer
-                        .take_event_stream()
-                        .unwrap()
-                        .for_each(|_| {
-                            // For now we simply ignore these events; we may later use them
-                            // to drive subgraph indexing
-                            Ok(())
-                        })
-                        .compat(),
-                );
-            });
+        // opt.network_subgraphs
+        //     .iter()
+        //     .filter(|network_subgraph| network_subgraph.starts_with("ethereum/"))
+        //     .for_each(|network_subgraph| {
+        //         let network_name = network_subgraph.replace("ethereum/", "");
+        //         let mut indexer = network_indexer::NetworkIndexer::new(
+        //             &logger,
+        //             eth_networks
+        //                 .adapter_with_capabilities(
+        //                     network_name.clone(),
+        //                     &NodeCapabilities {
+        //                         archive: false,
+        //                         traces: false,
+        //                     },
+        //                 )
+        //                 .expect(&*format!("adapter for network, {}", network_name))
+        //                 .clone(),
+        //             network_store.subgraph_store(),
+        //             metrics_registry.clone(),
+        //             format!("network/{}", network_subgraph).into(),
+        //             None,
+        //             network_name,
+        //         );
+        //         graph::spawn(
+        //             indexer
+        //                 .take_event_stream()
+        //                 .unwrap()
+        //                 .for_each(|_| {
+        //                     // For now we simply ignore these events; we may later use them
+        //                     // to drive subgraph indexing
+        //                     Ok(())
+        //                 })
+        //                 .compat(),
+        //         );
+        //     });
 
         if !opt.disable_block_ingestor {
             let block_polling_interval = Duration::from_millis(opt.ethereum_polling_interval);
@@ -307,20 +309,20 @@ async fn main() {
             graph::spawn_blocking(job_runner.start());
         }
 
-        let subgraph_instance_manager = SubgraphInstanceManager::new(
-            &logger_factory,
-            network_store.subgraph_store(),
-            blockchain_map.cheap_clone(),
-            metrics_registry.clone(),
-            link_resolver.cheap_clone(),
-        );
+        // let subgraph_instance_manager = SubgraphInstanceManager::new(
+        //     &logger_factory,
+        //     network_store.subgraph_store(),
+        //     blockchain_map.cheap_clone(),
+        //     metrics_registry.clone(),
+        //     link_resolver.cheap_clone(),
+        // );
 
         // Create IPFS-based subgraph provider
-        let subgraph_provider = IpfsSubgraphAssignmentProvider::new(
-            &logger_factory,
-            link_resolver.cheap_clone(),
-            subgraph_instance_manager,
-        );
+        // let subgraph_provider = IpfsSubgraphAssignmentProvider::new(
+        //     &logger_factory,
+        //     link_resolver.cheap_clone(),
+        //     subgraph_instance_manager,
+        // );
 
         // Check version switching mode environment variable
         let version_switching_mode = SubgraphVersionSwitchingMode::parse(
@@ -331,87 +333,87 @@ async fn main() {
         );
 
         // Create named subgraph provider for resolving subgraph name->ID mappings
-        let subgraph_registrar = Arc::new(IpfsSubgraphRegistrar::new(
-            &logger_factory,
-            link_resolver.cheap_clone(),
-            Arc::new(subgraph_provider),
-            network_store.subgraph_store(),
-            subscription_manager,
-            blockchain_map,
-            node_id.clone(),
-            version_switching_mode,
-        ));
-        graph::spawn(
-            subgraph_registrar
-                .start()
-                .map_err(|e| panic!("failed to initialize subgraph provider {}", e))
-                .compat(),
-        );
+        // let subgraph_registrar = Arc::new(IpfsSubgraphRegistrar::new(
+        //     &logger_factory,
+        //     link_resolver.cheap_clone(),
+        //     Arc::new(subgraph_provider),
+        //     network_store.subgraph_store(),
+        //     subscription_manager,
+        //     blockchain_map,
+        //     node_id.clone(),
+        //     version_switching_mode,
+        // ));
+        // graph::spawn(
+        //     subgraph_registrar
+        //         .start()
+        //         .map_err(|e| panic!("failed to initialize subgraph provider {}", e))
+        //         .compat(),
+        // );
 
         // Start admin JSON-RPC server.
-        let json_rpc_server = JsonRpcServer::serve(
-            json_rpc_port,
-            http_port,
-            ws_port,
-            subgraph_registrar.clone(),
-            node_id.clone(),
-            logger.clone(),
-        )
-        .expect("failed to start JSON-RPC admin server");
+        // let json_rpc_server = JsonRpcServer::serve(
+        //     json_rpc_port,
+        //     http_port,
+        //     ws_port,
+        //     subgraph_registrar.clone(),
+        //     node_id.clone(),
+        //     logger.clone(),
+        // )
+        // .expect("failed to start JSON-RPC admin server");
 
         // Let the server run forever.
-        std::mem::forget(json_rpc_server);
+        // std::mem::forget(json_rpc_server);
 
         // Add the CLI subgraph with a REST request to the admin server.
-        if let Some(subgraph) = subgraph {
-            let (name, hash) = if subgraph.contains(':') {
-                let mut split = subgraph.split(':');
-                (split.next().unwrap(), split.next().unwrap().to_owned())
-            } else {
-                ("cli", subgraph)
-            };
+        // if let Some(subgraph) = subgraph {
+        //     let (name, hash) = if subgraph.contains(':') {
+        //         let mut split = subgraph.split(':');
+        //         (split.next().unwrap(), split.next().unwrap().to_owned())
+        //     } else {
+        //         ("cli", subgraph)
+        //     };
 
-            let name = SubgraphName::new(name)
-                .expect("Subgraph name must contain only a-z, A-Z, 0-9, '-' and '_'");
-            let subgraph_id =
-                DeploymentHash::new(hash).expect("Subgraph hash must be a valid IPFS hash");
+        //     let name = SubgraphName::new(name)
+        //         .expect("Subgraph name must contain only a-z, A-Z, 0-9, '-' and '_'");
+        //     let subgraph_id =
+        //         DeploymentHash::new(hash).expect("Subgraph hash must be a valid IPFS hash");
 
-            graph::spawn(
-                async move {
-                    subgraph_registrar.create_subgraph(name.clone()).await?;
-                    subgraph_registrar
-                        .create_subgraph_version(name, subgraph_id, node_id)
-                        .await
-                }
-                .map_err(|e| panic!("Failed to deploy subgraph from `--subgraph` flag: {}", e)),
-            );
-        }
+        //     graph::spawn(
+        //         async move {
+        //             subgraph_registrar.create_subgraph(name.clone()).await?;
+        //             subgraph_registrar
+        //                 .create_subgraph_version(name, subgraph_id, node_id)
+        //                 .await
+        //         }
+        //         .map_err(|e| panic!("Failed to deploy subgraph from `--subgraph` flag: {}", e)),
+        //     );
+        // }
 
         // Serve GraphQL queries over HTTP
-        graph::spawn(
-            graphql_server
-                .serve(http_port, ws_port)
-                .expect("Failed to start GraphQL query server")
-                .compat(),
-        );
+        // graph::spawn(
+        //     graphql_server
+        //         .serve(http_port, ws_port)
+        //         .expect("Failed to start GraphQL query server")
+        //         .compat(),
+        // );
 
         // Serve GraphQL subscriptions over WebSockets
-        graph::spawn(subscription_server.serve(ws_port));
+        // graph::spawn(subscription_server.serve(ws_port));
 
         // Run the index node server
-        graph::spawn(
-            index_node_server
-                .serve(index_node_port)
-                .expect("Failed to start index node server")
-                .compat(),
-        );
+        // graph::spawn(
+        //     index_node_server
+        //         .serve(index_node_port)
+        //         .expect("Failed to start index node server")
+        //         .compat(),
+        // );
 
-        graph::spawn(
-            metrics_server
-                .serve(metrics_port)
-                .expect("Failed to start metrics server")
-                .compat(),
-        );
+        // graph::spawn(
+        //     metrics_server
+        //         .serve(metrics_port)
+        //         .expect("Failed to start metrics server")
+        //         .compat(),
+        // );
     };
 
     graph::spawn(launch_services(logger.clone()));

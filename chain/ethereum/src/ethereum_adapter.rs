@@ -996,24 +996,25 @@ impl EthereumAdapterTrait for EthereumAdapter {
         let web3 = self.web3.clone();
         let logger = logger.clone();
 
-        Box::new(
-            retry("eth_getBlockByHash RPC call", &logger)
-                .limit(*REQUEST_RETRIES)
-                .timeout_secs(*JSON_RPC_TIMEOUT)
-                .run(move || {
-                    web3.eth()
-                        .block_with_txs(BlockId::Hash(block_hash))
-                        .from_err()
-                        .compat()
-                })
-                .map_err(move |e| {
-                    e.into_inner().unwrap_or_else(move || {
-                        anyhow!("Ethereum node took too long to return block {}", block_hash)
-                    })
-                })
-                .boxed()
-                .compat(),
-        )
+        
+        let ret = retry("eth_getBlockByHash RPC call", &logger)
+            .limit(*REQUEST_RETRIES)
+            .timeout_secs(*JSON_RPC_TIMEOUT)
+            .run(move || {
+                web3.eth()
+                    .block_with_txs(BlockId::Hash(block_hash))
+                    .from_err()
+                    .compat()
+            });
+
+
+        Box::new(ret.map_err(move |e| {
+            e.into_inner().unwrap_or_else(move || {
+                anyhow!("Ethereum node took too long to return block {}", block_hash)
+            })
+        })
+        .boxed()
+        .compat(),)
     }
 
     fn block_by_number(
