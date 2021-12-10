@@ -639,6 +639,58 @@ impl IngestorAdapterTrait<Chain> for IngestorAdapter {
             .map(|block| block.into())
     }
 
+
+    async fn early_ingest_block(
+        &self,
+        block_hash: &BlockHash,
+    ) -> Result<Option<BlockHash>, IngestorError> {
+        // TODO: H256::from_slice can panic
+        let block_hash = H256::from_slice(block_hash.as_slice());
+
+        // let block = self
+        // .eth_adapter
+        // .block_by_hash(&self.logger, block_hash)
+        // .compat()
+        // .await?
+        // .ok_or_else(|| IngestorError::BlockUnavailable(block_hash))?;
+        // Get the fully populated block
+        let ret = self
+            .eth_adapter
+            .block_by_hash(&self.logger, block_hash)
+            .compat()
+            .await;
+
+        let block = match ret {
+            Err(e) => return Err(IngestorError::BlockUnavailable(block_hash)),
+            Ok(b) => b.unwrap(),
+        };
+        let number = block.number.unwrap().as_u64() as i64 - 1; 
+        let hash = block.parent_hash;
+
+        // .ok_or_else(|| IngestorError::BlockUnavailable(block_hash))?;
+        let block = self
+            .eth_adapter
+            .load_full_block(&self.logger, block)
+            .compat()
+            .await?;
+
+        // Store it in the database and try to advance the chain head pointer
+        match self.chain_store.upsert_block(block).await{
+            Err(e) => return Err(IngestorError::Unknown(e)),
+            _ => (),
+        };
+
+        self.chain_store
+            .cheap_clone()
+            .early_attempt_chain_head_update(self.ancestor_count, hash, number)
+            .await
+            .map(|missing| missing.map(|h256| h256.into()))
+            .map_err(|e| {
+                error!(self.logger, "failed to update chain head");
+                IngestorError::Unknown(e)
+            })
+    }
+
     async fn ingest_block(
         &self,
         block_hash: &BlockHash,
@@ -673,6 +725,9 @@ impl IngestorAdapterTrait<Chain> for IngestorAdapter {
             })
     }
 
+    fn chain_early_head_ptr(&self) -> Result<Option<BlockPtr>, Error> {
+        self.chain_store.chain_early_head_ptr()
+    }
     fn chain_head_ptr(&self) -> Result<Option<BlockPtr>, Error> {
         self.chain_store.chain_head_ptr()
     }

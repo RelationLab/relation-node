@@ -134,7 +134,7 @@ async fn main() {
     let query_only = config.query_only(&node_id);
 
     // Obtain subgraph related command-line arguments
-    // let subgraph = opt.subgraph.clone();
+    let subgraph = opt.subgraph.clone();
 
     // Obtain ports to use for the GraphQL server(s)
     // let http_port = opt.http_port;
@@ -813,8 +813,15 @@ fn start_block_ingestor(
             )
             .expect("failed to create Ethereum block ingestor");
 
+            let early_block_ingestor = BlockIngestor::<ethereum::Chain>::new(
+                chain.ingestor_adapter(),
+                block_polling_interval,
+            )
+            .expect("failed to create Ethereum block ingestor");
             // Run the Ethereum block ingestor in the background
             graph::spawn(block_ingestor.into_polling_stream());
+            // Run the Ethereum early block ingestor in the background
+            graph::spawn(early_block_ingestor.early_into_polling_stream());
         });
 }
 

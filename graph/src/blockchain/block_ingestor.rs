@@ -39,6 +39,44 @@ where
         })
     }
 
+    pub async fn early_into_polling_stream(self) {
+        loop {
+            match self.early_do_poll().await {
+                // Some polls will fail due to transient issues
+                Err(err @ IngestorError::BlockUnavailable(_)) => {
+                    info!(
+                        self.logger,
+                        "Trying again after block polling failed: {}", err
+                    );
+                }
+                Err(err @ IngestorError::ReceiptUnavailable(_, _)) => {
+                    info!(
+                        self.logger,
+                        "Trying again after block polling failed: {}", err
+                    );
+                }
+                Err(IngestorError::Unknown(inner_err)) => {
+                    warn!(
+                        self.logger,
+                        "Trying again after block polling failed: {}", inner_err
+                    );
+                }
+                Ok(x) => if x == 1 {
+                    warn!(
+                        self.logger,
+                        "Syncing earlyblock finished");
+                    break},
+            }
+
+            // if *CLEANUP_BLOCKS {
+            //     self.cleanup_cached_blocks()
+            // }
+
+            tokio::time::sleep(self.polling_interval).await;
+        }
+    }
+
+
     pub async fn into_polling_stream(self) {
         loop {
             match self.do_poll().await {
@@ -92,6 +130,43 @@ where
             ),
         }
     }
+
+    async fn early_do_poll(&self) -> Result<i32, IngestorError> {
+        trace!(self.logger, "BlockIngestor::early_do_poll");
+
+        let early_head_block_ptr_opt  = self.adapter.chain_early_head_ptr()?;
+        let early_head_block_ptr = match early_head_block_ptr_opt {
+            None => {
+                // Get chain head ptr from store
+                let head_block_ptr_opt = self.adapter.chain_head_ptr()?;
+                match head_block_ptr_opt {
+                    None => {
+                        return Ok(0);
+                    }
+                    Some(x) => x,
+                }
+            },
+            Some(x) => x
+        };
+
+        let blocks_needed = (early_head_block_ptr.number).min(self.adapter.ancestor_count());
+
+        info!(
+            self.logger,
+            "Early Syncing {} blocks from Ethereum.",
+            blocks_needed;
+            "current_block_head" => early_head_block_ptr.number
+        );
+        
+        let mut missing_block_hash = self.adapter.early_ingest_block(&early_head_block_ptr.hash).await?;
+
+        while let Some(hash) = missing_block_hash {
+            missing_block_hash = self.adapter.early_ingest_block(&hash).await?;
+        }
+
+        Ok(early_head_block_ptr.number)
+    }
+
 
     async fn do_poll(&self) -> Result<(), IngestorError> {
         trace!(self.logger, "BlockIngestor::do_poll");

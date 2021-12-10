@@ -38,6 +38,8 @@ mod public {
             namespace -> Varchar,
             head_block_hash -> Nullable<Varchar>,
             head_block_number -> Nullable<BigInt>,
+            early_head_block_hash -> Nullable<Varchar>,
+            early_head_block_number -> Nullable<BigInt>,
             net_version -> Varchar,
             genesis_block_hash -> Varchar,
         }
@@ -107,16 +109,16 @@ mod data {
             chain_receipts (id) {
                 /// `id` is the transaction_hash + log_index
                 id -> Bytea,
-                data -> Varchar,
-                topics -> Text,
-                address -> Varchar,
-                log_type -> Nullable<Varchar>,
-                removed -> Nullable<Bool>,
-                log_index -> Nullable<Varchar>,
-                block_hash -> Bytea,
-                block_number -> Nullable<BigInt>,
-                transaction_hash -> Nullable<Varchar>,
-                transaction_index -> Nullable<Varchar>,
+                // data -> Varchar,
+                // topics -> Text,
+                // address -> Varchar,
+                // log_type -> Nullable<Varchar>,
+                // removed -> Nullable<Bool>,
+                // log_index -> Nullable<Varchar>,
+                // block_hash -> Bytea,
+                // block_number -> Nullable<BigInt>,
+                // transaction_hash -> Nullable<Varchar>,
+                // transaction_index -> Nullable<Varchar>,
                 // transaction_log_index -> Nullable<Varchar>,
             }
         }
@@ -297,9 +299,9 @@ mod data {
             }
         }
 
-        // fn table(&self) -> DynTable {
-        //     self.table.clone()
-        // }
+        fn table(&self) -> DynTable {
+            self.table.clone()
+        }
     }
 
     #[derive(Clone, Debug)]
@@ -644,7 +646,38 @@ mod data {
 
                     //
                     // receipts
+
                     let block_hash = format!("'{:x}'", block.block.hash.unwrap());
+
+                    // use public::chain_receipts as cr;
+                    // // let t = receipts.table();
+                    // // t.select();
+                    // let id = block.block.hash.unwrap().as_bytes();
+                    // insert_into(receipts.table())
+                    // .values((
+                    //     cr::id.eq(id),
+                    // ))
+                    // .on_conflict(cr::id)
+                    // .do_nothing()
+                    // .execute(conn);
+
+                    // blocks
+                    // .table()
+                    // .select(blocks.hash())
+                    // .filter(blocks.number().eq(number as i64))
+                    // .get_results::<Vec<u8>>(conn)?
+                    // .into_iter()
+                    // .map(|hash| h256_from_bytes(hash.as_slice()))
+                    // .collect::<Result<Vec<H256>, _>>()
+                    // .map_err(Error::from),
+
+                    // insert_into(b::table)
+                    // .values(values.clone())
+                    // .on_conflict(b::hash)
+                    // .do_nothing()
+                    // .execute(conn)
+
+
 
                     for recipts in block.transaction_receipts.iter() {
                         //recipt sql insert
@@ -1143,6 +1176,44 @@ mod data {
             }
         }
 
+        pub(super) fn chain_early_head_candidate(
+            &self,
+            conn: &PgConnection,
+            chain: &str,
+        ) -> Result<Option<BlockPtr>, Error> {
+            use public::ethereum_networks as n;
+
+            let head = n::table
+                .filter(n::name.eq(chain))
+                .select(n::early_head_block_number)
+                .first::<Option<i64>>(conn)?
+                .unwrap_or(-1);
+
+            match self {
+                Storage::Shared => {
+                    use public::ethereum_blocks as b;
+                    b::table
+                        .filter(b::network_name.eq(chain))
+                        .filter(b::number.gt(head))
+                        .order_by((b::number.desc(), b::hash))
+                        .select((b::hash, b::number))
+                        .first::<(String, i64)>(conn)
+                        .optional()?
+                        .map(|(hash, number)| BlockPtr::try_from((hash.as_str(), number)))
+                        .transpose()
+                }
+                Storage::Private(Schema { blocks, .. }) => blocks
+                    .table()
+                    .filter(blocks.number().gt(head))
+                    .order_by((blocks.number().desc(), blocks.hash()))
+                    .select((blocks.hash(), blocks.number()))
+                    .first::<(Vec<u8>, i64)>(conn)
+                    .optional()?
+                    .map(|(hash, number)| BlockPtr::try_from((hash.as_slice(), number)))
+                    .transpose(),
+            }
+        }
+
         pub(super) fn ancestor_block(
             &self,
             conn: &PgConnection,
@@ -1449,6 +1520,8 @@ mod data {
                     n::genesis_block_hash.eq(genesis_hash),
                     n::head_block_hash.eq::<Option<&str>>(None),
                     n::head_block_number.eq::<Option<i64>>(None),
+                    n::early_head_block_hash.eq::<Option<&str>>(None),
+                    n::early_head_block_number.eq::<Option<i64>>(None),
                 ))
                 .execute(conn)
                 .unwrap();
@@ -1555,6 +1628,8 @@ impl ChainStore {
                     namespace.eq(&self.storage),
                     head_block_hash.eq::<Option<String>>(None),
                     head_block_number.eq::<Option<i64>>(None),
+                    early_head_block_hash.eq::<Option<String>>(None),
+                    early_head_block_number.eq::<Option<i64>>(None),
                     net_version.eq(&ident.net_version),
                     genesis_block_hash.eq(format!("{:x}", ident.genesis_block_hash)),
                 ))
@@ -1650,6 +1725,43 @@ impl ChainStoreTrait for ChainStore {
         Ok(())
     }
 
+    async fn early_attempt_chain_head_update(
+        self: Arc<Self>,
+        ancestor_count: BlockNumber,
+        block_hash: H256,
+        block_number: i64,
+    ) -> Result<Option<H256>, Error> {
+        use public::ethereum_networks as n;
+
+        let chain_store = self.clone();
+
+        let (missing, ptr) = self.pool
+                .with_conn(move |conn, _| {
+                    conn.transaction(
+                        || -> Result<(Option<H256>, Option<(String, i64)>), StoreError> {
+                            let hash = format!("{:x}", block_hash);
+
+                            update(n::table.filter(n::name.eq(&chain_store.chain)))
+                                .set((
+                                    n::early_head_block_hash.eq(&hash),
+                                    n::early_head_block_number.eq(block_number),
+                                ))
+                                .execute(conn).expect("early_attempt_chain_head_update ");
+                            Ok((None, Some((hash, block_number))))
+                        },
+                    )
+                    .map_err(CancelableError::from)
+                }
+            ).await?;
+
+        // if let Some((hash, number)) = ptr {
+        //     self.chain_head_update_sender.send(&hash, number)?;
+        // }
+
+        Ok(missing)
+    }
+
+
     async fn attempt_chain_head_update(
         self: Arc<Self>,
         ancestor_count: BlockNumber,
@@ -1710,6 +1822,26 @@ impl ChainStoreTrait for ChainStore {
 
         Ok(missing)
     }
+
+    fn chain_early_head_ptr(&self) -> Result<Option<BlockPtr>, Error> {
+        use public::ethereum_networks::dsl::*;
+
+        ethereum_networks
+            .select((early_head_block_hash, early_head_block_number))
+            .filter(name.eq(&self.chain))
+            .load::<(Option<String>, Option<i64>)>(&*self.get_conn()?)
+            .map(|rows| {
+                rows.first()
+                    .map(|(hash_opt, number_opt)| match (hash_opt, number_opt) {
+                        (Some(hash), Some(number)) => Some((hash.parse().unwrap(), *number).into()),
+                        (None, None) => None,
+                        _ => unreachable!(),
+                    })
+                    .and_then(|opt| opt)
+            })
+            .map_err(Error::from)
+    }
+
 
     fn chain_head_ptr(&self) -> Result<Option<BlockPtr>, Error> {
         use public::ethereum_networks::dsl::*;

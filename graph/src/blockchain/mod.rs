@@ -165,10 +165,12 @@ pub trait IngestorAdapter<C: Blockchain> {
     /// Retrieve all necessary data for the block  `hash` from the chain and
     /// store it in the database
     async fn ingest_block(&self, hash: &BlockHash) -> Result<Option<BlockHash>, IngestorError>;
+    async fn early_ingest_block(&self, hash: &BlockHash) -> Result<Option<BlockHash>, IngestorError>;
 
     /// Return the chain head that is stored locally, and therefore visible
     /// to the block streams of subgraphs
     fn chain_head_ptr(&self) -> Result<Option<BlockPtr>, Error>;
+    fn chain_early_head_ptr(&self) -> Result<Option<BlockPtr>, Error>;
 
     /// Remove old blocks from the database cache and return a pair
     /// containing the number of the oldest block retained and the number of

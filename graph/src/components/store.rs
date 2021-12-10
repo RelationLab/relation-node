@@ -1277,13 +1277,19 @@ pub trait ChainStore: Send + Sync + 'static {
         self: Arc<Self>,
         ancestor_count: BlockNumber,
     ) -> Result<Option<H256>, Error>;
-
+    async fn early_attempt_chain_head_update(
+        self: Arc<Self>,
+        ancestor_count: BlockNumber,
+        block_hash: H256,
+        block_number: i64,
+    ) -> Result<Option<H256>, Error>;
     /// Get the current head block pointer for this chain.
     /// Any changes to the head block pointer will be to a block with a larger block number, never
     /// to a block with a smaller or equal block number.
     ///
     /// The head block pointer will be None on initial set up.
     fn chain_head_ptr(&self) -> Result<Option<BlockPtr>, Error>;
+    fn chain_early_head_ptr(&self) -> Result<Option<BlockPtr>, Error>;
 
     /// Returns the blocks present in the store.
     fn blocks(&self, hashes: Vec<H256>) -> Result<Vec<LightEthereumBlock>, Error>;
