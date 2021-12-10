@@ -40,6 +40,8 @@ mod public {
             head_block_number -> Nullable<BigInt>,
             early_head_block_hash -> Nullable<Varchar>,
             early_head_block_number -> Nullable<BigInt>,
+            head_updated -> Timestamp,
+            early_head_updated -> Timestamp,
             net_version -> Varchar,
             genesis_block_hash -> Varchar,
         }
@@ -1183,18 +1185,21 @@ mod data {
         ) -> Result<Option<BlockPtr>, Error> {
             use public::ethereum_networks as n;
 
-            let head = n::table
+            let (head_num, head_hash) = n::table
                 .filter(n::name.eq(chain))
-                .select(n::early_head_block_number)
-                .first::<Option<i64>>(conn)?
-                .unwrap_or(-1);
+                .select((n::early_head_block_number,n::early_head_block_hash))
+                .first::<(Option<i64>, Option<String>)>(conn)
+                .optional()?
+                .map(|(num, hash)|{
+                    (num.unwrap_or(i64::MAX), hash.unwrap_or("".to_string()))
+                }).unwrap();
 
             match self {
                 Storage::Shared => {
                     use public::ethereum_blocks as b;
                     b::table
                         .filter(b::network_name.eq(chain))
-                        .filter(b::number.gt(head))
+                        .filter(b::number.lt(head_num))
                         .order_by((b::number.desc(), b::hash))
                         .select((b::hash, b::number))
                         .first::<(String, i64)>(conn)
@@ -1204,7 +1209,7 @@ mod data {
                 }
                 Storage::Private(Schema { blocks, .. }) => blocks
                     .table()
-                    .filter(blocks.number().gt(head))
+                    .filter(blocks.number().lt(head_num))
                     .order_by((blocks.number().desc(), blocks.hash()))
                     .select((blocks.hash(), blocks.number()))
                     .first::<(Vec<u8>, i64)>(conn)
@@ -1728,35 +1733,43 @@ impl ChainStoreTrait for ChainStore {
     async fn early_attempt_chain_head_update(
         self: Arc<Self>,
         ancestor_count: BlockNumber,
-        block_hash: H256,
-        block_number: i64,
+        parent_hash: H256,
+        parent_number: i64,
     ) -> Result<Option<H256>, Error> {
         use public::ethereum_networks as n;
 
-        let chain_store = self.clone();
-
-        let (missing, ptr) = self.pool
+        let (missing, ptr) = {
+            let chain_store = self.clone();
+            self.pool
                 .with_conn(move |conn, _| {
+                    let hash = format!("{:x}", parent_hash);
+                    let number = parent_number;
+
                     conn.transaction(
                         || -> Result<(Option<H256>, Option<(String, i64)>), StoreError> {
-                            let hash = format!("{:x}", block_hash);
-
                             update(n::table.filter(n::name.eq(&chain_store.chain)))
                                 .set((
                                     n::early_head_block_hash.eq(&hash),
-                                    n::early_head_block_number.eq(block_number),
+                                    n::early_head_block_number.eq(number),
+                                    n::early_head_updated.eq(diesel::dsl::now),
                                 ))
-                                .execute(conn).expect("early_attempt_chain_head_update ");
-                            Ok((None, Some((hash, block_number))))
+                                .execute(conn)?;
+                            Ok((Some(parent_hash), Some((hash, number))))
                         },
                     )
                     .map_err(CancelableError::from)
-                }
-            ).await?;
+                })
+                .await?
+        };
+    
+        println!(
+            "Early Syncing {} blocks ...",
+            parent_number
+        );
 
-        // if let Some((hash, number)) = ptr {
-        //     self.chain_head_update_sender.send(&hash, number)?;
-        // }
+        if let Some((hash, number)) = ptr {
+            self.chain_head_update_sender.send(&hash, number)?;
+        }
 
         Ok(missing)
     }
@@ -1807,6 +1820,7 @@ impl ChainStoreTrait for ChainStore {
                                 .set((
                                     n::head_block_hash.eq(&hash),
                                     n::head_block_number.eq(number),
+                                    n::head_updated.eq(diesel::dsl::now),
                                 ))
                                 .execute(conn)?;
                             Ok((None, Some((hash, number))))

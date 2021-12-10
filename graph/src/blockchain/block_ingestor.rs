@@ -146,7 +146,7 @@ where
                     Some(x) => x,
                 }
             },
-            Some(x) => x
+            Some(x) => x,
         };
 
         let blocks_needed = (early_head_block_ptr.number).min(self.adapter.ancestor_count());
@@ -160,11 +160,16 @@ where
         
         let mut missing_block_hash = self.adapter.early_ingest_block(&early_head_block_ptr.hash).await?;
 
+        let mut c = self.adapter.ancestor_count();
         while let Some(hash) = missing_block_hash {
             missing_block_hash = self.adapter.early_ingest_block(&hash).await?;
+            c -= 1;
+            if c == 0{
+                break;
+            }
         }
 
-        Ok(early_head_block_ptr.number)
+        Ok(early_head_block_ptr.number - self.adapter.ancestor_count())
     }
 
 

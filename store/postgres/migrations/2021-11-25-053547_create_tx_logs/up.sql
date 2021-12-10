@@ -33,3 +33,18 @@ CREATE TABLE IF NOT EXISTS ethereum_receipts (
     transaction_index BIGINT NOT NULL,
     transaction_log_index VARCHAR
 );
+
+
+
+
+
+
+/**************************************************************
+* ADD etherum_networks COLUMNS
+**************************************************************/
+
+ALTER TABLE ethereum_networks
+	ADD COLUMN early_head_block_hash VARCHAR,
+	ADD COLUMN early_head_block_number BIGINT,
+    ADD COLUMN early_head_updated TIMESTAMP,
+    ADD COLUMN head_updated TIMESTAMP,

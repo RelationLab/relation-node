@@ -639,7 +639,6 @@ impl IngestorAdapterTrait<Chain> for IngestorAdapter {
             .map(|block| block.into())
     }
 
-
     async fn early_ingest_block(
         &self,
         block_hash: &BlockHash,
@@ -664,8 +663,8 @@ impl IngestorAdapterTrait<Chain> for IngestorAdapter {
             Err(e) => return Err(IngestorError::BlockUnavailable(block_hash)),
             Ok(b) => b.unwrap(),
         };
-        let number = block.number.unwrap().as_u64() as i64 - 1; 
-        let hash = block.parent_hash;
+        let parent_number = block.number.unwrap().as_u64() as i64 - 1;
+        let parent_hash = block.parent_hash;
 
         // .ok_or_else(|| IngestorError::BlockUnavailable(block_hash))?;
         let block = self
@@ -675,14 +674,14 @@ impl IngestorAdapterTrait<Chain> for IngestorAdapter {
             .await?;
 
         // Store it in the database and try to advance the chain head pointer
-        match self.chain_store.upsert_block(block).await{
+        match self.chain_store.upsert_block(block).await {
             Err(e) => return Err(IngestorError::Unknown(e)),
             _ => (),
         };
 
         self.chain_store
             .cheap_clone()
-            .early_attempt_chain_head_update(self.ancestor_count, hash, number)
+            .early_attempt_chain_head_update(self.ancestor_count, parent_hash, parent_number)
             .await
             .map(|missing| missing.map(|h256| h256.into()))
             .map_err(|e| {
