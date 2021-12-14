@@ -1,5 +1,8 @@
 use std::{sync::Arc, time::Duration};
 
+
+use crate::task_spawn::spawn;
+
 use crate::{
     blockchain::{Blockchain, IngestorAdapter, IngestorError},
     prelude::{info, lazy_static, tokio, trace, warn, Error, LogCode, Logger},
@@ -61,11 +64,13 @@ where
                         "Trying again after block polling failed: {}", inner_err
                     );
                 }
-                Ok(x) => if x == 1 {
+                Err(IngestorError::EarlyBlockFinished(_)) => {
                     warn!(
                         self.logger,
                         "Syncing earlyblock finished");
-                    break},
+                    break;
+                }
+                _ => (),
             }
 
             // if *CLEANUP_BLOCKS {
@@ -100,6 +105,7 @@ where
                     );
                 }
                 Ok(()) => (),
+                _ => (),
             }
 
             if *CLEANUP_BLOCKS {
@@ -134,6 +140,10 @@ where
     async fn early_do_poll(&self) -> Result<i32, IngestorError> {
         trace!(self.logger, "BlockIngestor::early_do_poll");
 
+        info!(
+            self.logger,
+            "=get earlystatus from db"
+        );
         let early_head_block_ptr_opt  = self.adapter.chain_early_head_ptr()?;
         let early_head_block_ptr = match early_head_block_ptr_opt {
             None => {
@@ -141,15 +151,21 @@ where
                 let head_block_ptr_opt = self.adapter.chain_head_ptr()?;
                 match head_block_ptr_opt {
                     None => {
-                        return Ok(0);
+                        return Err(IngestorError::BlockUnavailable(web3::types::H256::from_slice(b"")));
                     }
                     Some(x) => x,
                 }
             },
-            Some(x) => x,
+            Some(x) => {
+                if x.number == 0 {
+                    return Err(IngestorError::EarlyBlockFinished(web3::types::H256::from_slice(b"")));
+                }
+                x
+            }
         };
 
-        let blocks_needed = (early_head_block_ptr.number).min(self.adapter.ancestor_count());
+        let ancestor  = self.adapter.ancestor_count();
+        let blocks_needed = (early_head_block_ptr.number).min(ancestor);
 
         info!(
             self.logger,
@@ -157,21 +173,53 @@ where
             blocks_needed;
             "current_block_head" => early_head_block_ptr.number
         );
-        
-        let mut missing_block_hash = self.adapter.early_ingest_block(&early_head_block_ptr.hash).await?;
 
-        let mut c = self.adapter.ancestor_count();
-        while let Some(hash) = missing_block_hash {
-            missing_block_hash = self.adapter.early_ingest_block(&hash).await?;
-            c -= 1;
-            if c == 0{
-                break;
-            }
+        // 
+        let mut num = early_head_block_ptr.number;
+        let mut handles = Vec::new();
+        let mut earlynum = early_head_block_ptr.number - ancestor;
+        if earlynum < 0{
+            earlynum = 0;
+        }
+        while num > earlynum {
+            handles.push(async move {self.adapter.early_ingest_block(num).await});
+            num -= 1;
         }
 
-        Ok(early_head_block_ptr.number - self.adapter.ancestor_count())
-    }
+        info!(
+            self.logger,
+            "Early Syncing await...",
+        );
+        let mut rets = Vec::new();
+        for handle in handles {
+            let ret = handle.await?;
+            rets.push(ret.unwrap());
+        }
+        info!(
+            self.logger,
+            "Early Syncing Result Check...",
+        );
+        // sort by rets'blocknum
+        rets.sort_by(|a,b| {
+            if a.0 < b.0 {
+                return std::cmp::Ordering::Less;
+            }
+            return std::cmp::Ordering::Greater;
+        });
+        // todo: check blocks parenthash
 
+        // uphead
+        self.adapter.early_ingest_block_head_update(
+        early_head_block_ptr.number - ancestor,
+    rets[0].2
+        ).await?;
+
+        info!(
+            self.logger,
+            "=early_ingest_block {} finished", early_head_block_ptr.number
+        );
+        Ok(early_head_block_ptr.number - ancestor)
+    }
 
     async fn do_poll(&self) -> Result<(), IngestorError> {
         trace!(self.logger, "BlockIngestor::do_poll");

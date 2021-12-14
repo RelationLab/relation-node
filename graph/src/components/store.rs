@@ -1279,10 +1279,9 @@ pub trait ChainStore: Send + Sync + 'static {
     ) -> Result<Option<H256>, Error>;
     async fn early_attempt_chain_head_update(
         self: Arc<Self>,
-        ancestor_count: BlockNumber,
-        block_hash: H256,
-        block_number: i64,
-    ) -> Result<Option<H256>, Error>;
+        parent_num: BlockNumber,
+        parent_hash: H256
+    ) -> Result<(), Error>;
     /// Get the current head block pointer for this chain.
     /// Any changes to the head block pointer will be to a block with a larger block number, never
     /// to a block with a smaller or equal block number.

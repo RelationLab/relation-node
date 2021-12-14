@@ -139,6 +139,9 @@ pub enum IngestorError {
     /// An unexpected error occurred.
     #[error("Ingestor error: {0}")]
     Unknown(Error),
+
+    #[error("EarlyBlock get finished: {0}")]
+    EarlyBlockFinished(H256),
 }
 
 impl From<Error> for IngestorError {
@@ -165,8 +168,8 @@ pub trait IngestorAdapter<C: Blockchain> {
     /// Retrieve all necessary data for the block  `hash` from the chain and
     /// store it in the database
     async fn ingest_block(&self, hash: &BlockHash) -> Result<Option<BlockHash>, IngestorError>;
-    async fn early_ingest_block(&self, hash: &BlockHash) -> Result<Option<BlockHash>, IngestorError>;
-
+    async fn early_ingest_block(&self, num: BlockNumber) -> Result<Option<(BlockNumber, H256, H256)>, Error>;
+    async fn early_ingest_block_head_update(&self, parent_num: BlockNumber, parent_hash: H256) -> Result<(), Error>;
     /// Return the chain head that is stored locally, and therefore visible
     /// to the block streams of subgraphs
     fn chain_head_ptr(&self) -> Result<Option<BlockPtr>, Error>;

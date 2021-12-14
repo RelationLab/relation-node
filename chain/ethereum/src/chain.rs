@@ -5,6 +5,7 @@ use graph::firehose::endpoints::FirehoseNetworkEndpoints;
 use graph::prelude::{
     EthereumCallCache, LightEthereumBlock, LightEthereumBlockExt, StopwatchMetrics,
 };
+
 use graph::{
     blockchain::{
         block_stream::{
@@ -21,7 +22,7 @@ use graph::{
     firehose::bstream,
     log::factory::{ComponentLoggerConfig, ElasticComponentLoggerConfig},
     prelude::{
-        async_trait, error, lazy_static, o, web3::types::H256, BlockNumber, ChainStore,
+        async_trait, info, error, lazy_static, o, web3::types::H256, BlockNumber, ChainStore,
         EthereumBlockWithCalls, Future01CompatExt, Logger, LoggerFactory, MetricsRegistry, NodeId,
         SubgraphStore,
     },
@@ -639,20 +640,41 @@ impl IngestorAdapterTrait<Chain> for IngestorAdapter {
             .map(|block| block.into())
     }
 
+
+    async fn early_ingest_block_head_update(
+        &self, 
+        parent_num: BlockNumber,
+        parent_hash: H256
+    ) -> Result<(), Error>
+    {
+        let ret = self.chain_store
+            .cheap_clone()
+            .early_attempt_chain_head_update(parent_num, parent_hash)
+            .await;
+        return ret;
+    }
+
+    
     async fn early_ingest_block(
         &self,
-        block_hash: &BlockHash,
-    ) -> Result<Option<BlockHash>, IngestorError> {
-        // TODO: H256::from_slice can panic
-        let block_hash = H256::from_slice(block_hash.as_slice());
+        block_num: BlockNumber,
+    ) -> Result<Option<(BlockNumber, H256, H256)>, Error> {
 
-        // let block = self
-        // .eth_adapter
-        // .block_by_hash(&self.logger, block_hash)
-        // .compat()
-        // .await?
-        // .ok_or_else(|| IngestorError::BlockUnavailable(block_hash))?;
-        // Get the fully populated block
+        info!(self.logger,
+            "=early_ingest_block block_by_number {}",block_num
+        );
+        let block = self
+            .eth_adapter
+            .block_by_number(&self.logger, block_num)
+            .compat()
+            .await?;
+
+        // TODO: H256::from_slice can panic
+        // let block_hash = H256::from_slice(block.hash.as_slice());
+
+        let block_hash = block.expect(&format!("{} no blockhash", block_num)).hash.expect(&format!("{} no blockhash", block_num));
+        // .unwarp().expect(&format!("{} no blockhash", block_num));
+
         let ret = self
             .eth_adapter
             .block_by_hash(&self.logger, block_hash)
@@ -660,7 +682,7 @@ impl IngestorAdapterTrait<Chain> for IngestorAdapter {
             .await;
 
         let block = match ret {
-            Err(e) => return Err(IngestorError::BlockUnavailable(block_hash)),
+            Err(e) => return Err(e),
             Ok(b) => b.unwrap(),
         };
         let parent_number = block.number.unwrap().as_u64() as i64 - 1;
@@ -673,21 +695,12 @@ impl IngestorAdapterTrait<Chain> for IngestorAdapter {
             .compat()
             .await?;
 
-        // Store it in the database and try to advance the chain head pointer
-        match self.chain_store.upsert_block(block).await {
-            Err(e) => return Err(IngestorError::Unknown(e)),
-            _ => (),
-        };
+        info!(self.logger,
+            "=early_ingest_block upsert_block {}", block_num
+        );
 
-        self.chain_store
-            .cheap_clone()
-            .early_attempt_chain_head_update(self.ancestor_count, parent_hash, parent_number)
-            .await
-            .map(|missing| missing.map(|h256| h256.into()))
-            .map_err(|e| {
-                error!(self.logger, "failed to update chain head");
-                IngestorError::Unknown(e)
-            })
+        self.chain_store.upsert_block(block).await?;
+        return Ok(Some((block_num, block_hash, parent_hash)));
     }
 
     async fn ingest_block(

@@ -1732,48 +1732,34 @@ impl ChainStoreTrait for ChainStore {
 
     async fn early_attempt_chain_head_update(
         self: Arc<Self>,
-        ancestor_count: BlockNumber,
-        parent_hash: H256,
-        parent_number: i64,
-    ) -> Result<Option<H256>, Error> {
+        parent_num: BlockNumber,
+        parent_hash: H256
+    ) -> Result<(), Error>
+    {
         use public::ethereum_networks as n;
+        let chain_store = self.clone();
+        let ret = self.pool
+            .with_conn(move |conn, _| {
+                let hash = format!("{:x}", parent_hash);
+                let number = parent_num as i64;
 
-        let (missing, ptr) = {
-            let chain_store = self.clone();
-            self.pool
-                .with_conn(move |conn, _| {
-                    let hash = format!("{:x}", parent_hash);
-                    let number = parent_number;
-
-                    conn.transaction(
-                        || -> Result<(Option<H256>, Option<(String, i64)>), StoreError> {
-                            update(n::table.filter(n::name.eq(&chain_store.chain)))
-                                .set((
-                                    n::early_head_block_hash.eq(&hash),
-                                    n::early_head_block_number.eq(number),
-                                    n::early_head_updated.eq(diesel::dsl::now),
-                                ))
-                                .execute(conn)?;
-                            Ok((Some(parent_hash), Some((hash, number))))
-                        },
-                    )
-                    .map_err(CancelableError::from)
-                })
-                .await?
-        };
-    
-        println!(
-            "Early Syncing {} blocks ...",
-            parent_number
-        );
-
-        if let Some((hash, number)) = ptr {
-            self.chain_head_update_sender.send(&hash, number)?;
-        }
-
-        Ok(missing)
+                conn.transaction(
+                    || -> Result<(), StoreError> {
+                        update(n::table.filter(n::name.eq(&chain_store.chain)))
+                            .set((
+                                n::early_head_block_hash.eq(&hash),
+                                n::early_head_block_number.eq(number),
+                                n::early_head_updated.eq(diesel::dsl::now),
+                            ))
+                            .execute(conn)?;
+                        Ok(())
+                    },
+                )
+                .map_err(CancelableError::from)
+            })
+            .await?;
+        Ok(())
     }
-
 
     async fn attempt_chain_head_update(
         self: Arc<Self>,

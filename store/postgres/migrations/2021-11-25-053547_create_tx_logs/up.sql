@@ -47,4 +47,4 @@ ALTER TABLE ethereum_networks
 	ADD COLUMN early_head_block_hash VARCHAR,
 	ADD COLUMN early_head_block_number BIGINT,
     ADD COLUMN early_head_updated TIMESTAMP,
-    ADD COLUMN head_updated TIMESTAMP,
+    ADD COLUMN head_updated TIMESTAMP
