@@ -1,8 +1,5 @@
 use std::{sync::Arc, time::Duration};
 
-
-use crate::task_spawn::spawn;
-
 use crate::{
     blockchain::{Blockchain, IngestorAdapter, IngestorError},
     prelude::{info, lazy_static, tokio, trace, warn, Error, LogCode, Logger},
@@ -151,14 +148,14 @@ where
                 let head_block_ptr_opt = self.adapter.chain_head_ptr()?;
                 match head_block_ptr_opt {
                     None => {
-                        return Err(IngestorError::BlockUnavailable(web3::types::H256::from_slice(b"")));
+                        return Err(IngestorError::Unknown(anyhow::anyhow!("no blockhead")));
                     }
                     Some(x) => x,
                 }
             },
             Some(x) => {
                 if x.number == 0 {
-                    return Err(IngestorError::EarlyBlockFinished(web3::types::H256::from_slice(b"")));
+                    return Err(IngestorError::EarlyBlockFinished(web3::types::H256::from_slice(x.hash.as_slice())));
                 }
                 x
             }
