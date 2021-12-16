@@ -55,6 +55,13 @@ lazy_static! {
         .map(|s| BlockNumber::from_str(&s)
              .unwrap_or_else(|_| panic!("failed to parse env var ETHEREUM_ANCESTOR_COUNT")))
         .unwrap_or(50);
+
+    // count of sync earlyblock task
+    static ref EARLYBLOCK_TASK_CNT: BlockNumber = env::var("ETHEREUM_EARLYBLOCK_TASK_CNT")
+        .ok()
+        .map(|s| BlockNumber::from_str(&s)
+             .unwrap_or_else(|_| panic!("failed to parse env var ETHEREUM_EARLYBLOCK_TASK_CNT")))
+        .unwrap_or(4);
 }
 
 /// How long we will hold up node startup to get the net version and genesis
@@ -757,6 +764,7 @@ fn networks_as_chains(
                 *ANCESTOR_COUNT,
                 *REORG_THRESHOLD,
                 is_ingestible,
+                *EARLYBLOCK_TASK_CNT,
             );
             (network_name.clone(), Arc::new(chain))
         })

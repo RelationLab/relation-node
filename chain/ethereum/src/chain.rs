@@ -22,7 +22,7 @@ use graph::{
     firehose::bstream,
     log::factory::{ComponentLoggerConfig, ElasticComponentLoggerConfig},
     prelude::{
-        async_trait, info, error, lazy_static, o, web3::types::H256, BlockNumber, ChainStore,
+        async_trait, error, info, lazy_static, o, web3::types::H256, BlockNumber, ChainStore,
         EthereumBlockWithCalls, Future01CompatExt, Logger, LoggerFactory, MetricsRegistry, NodeId,
         SubgraphStore,
     },
@@ -79,6 +79,8 @@ pub struct Chain {
     chain_head_update_listener: Arc<dyn ChainHeadUpdateListener>,
     reorg_threshold: BlockNumber,
     pub is_ingestible: bool,
+    earlyblock_task_cnt: BlockNumber,
+    
 }
 
 impl std::fmt::Debug for Chain {
@@ -102,6 +104,7 @@ impl Chain {
         ancestor_count: BlockNumber,
         reorg_threshold: BlockNumber,
         is_ingestible: bool,
+        earlyblock_task_cnt: BlockNumber,
     ) -> Self {
         Chain {
             logger_factory,
@@ -117,6 +120,7 @@ impl Chain {
             chain_head_update_listener,
             reorg_threshold,
             is_ingestible,
+            earlyblock_task_cnt,
         }
     }
 
@@ -328,6 +332,7 @@ impl Blockchain for Chain {
             eth_adapter,
             logger,
             ancestor_count: self.ancestor_count,
+            earlyblock_task_cnt: self.earlyblock_task_cnt,
             chain_store: self.chain_store.clone(),
         };
         Arc::new(adapter)
@@ -618,6 +623,7 @@ impl FirehoseMapper {
 pub struct IngestorAdapter {
     logger: Logger,
     ancestor_count: i32,
+    earlyblock_task_cnt: i32,
     eth_adapter: Arc<EthereumAdapter>,
     chain_store: Arc<dyn ChainStore>,
 }
@@ -628,6 +634,10 @@ impl IngestorAdapterTrait<Chain> for IngestorAdapter {
         &self.logger
     }
 
+    
+    fn early_block_task_count(&self) -> BlockNumber {
+        self.earlyblock_task_cnt
+    }
     fn ancestor_count(&self) -> BlockNumber {
         self.ancestor_count
     }
@@ -640,28 +650,27 @@ impl IngestorAdapterTrait<Chain> for IngestorAdapter {
             .map(|block| block.into())
     }
 
-
     async fn early_ingest_block_head_update(
-        &self, 
+        &self,
         parent_num: BlockNumber,
-        parent_hash: H256
-    ) -> Result<(), Error>
-    {
-        let ret = self.chain_store
+        parent_hash: H256,
+    ) -> Result<(), Error> {
+        let ret = self
+            .chain_store
             .cheap_clone()
             .early_attempt_chain_head_update(parent_num, parent_hash)
             .await;
         return ret;
     }
 
-    
     async fn early_ingest_block(
         &self,
         block_num: BlockNumber,
     ) -> Result<Option<(BlockNumber, H256, H256)>, Error> {
-
-        info!(self.logger,
-            "=early_ingest_block block_by_number {}",block_num
+        // println!("spawned thread print {:?}", std::thread::current());
+        info!(
+            self.logger,
+            "=early_ingest_block block_by_number {}", block_num
         );
         let block = self
             .eth_adapter
@@ -672,8 +681,10 @@ impl IngestorAdapterTrait<Chain> for IngestorAdapter {
         // TODO: H256::from_slice can panic
         // let block_hash = H256::from_slice(block.hash.as_slice());
 
-        let block_hash = block.expect(&format!("{} no blockhash", block_num)).hash.expect(&format!("{} no blockhash", block_num));
-        // .unwarp().expect(&format!("{} no blockhash", block_num));
+        let block_hash = block
+            .expect(&format!("{} no block", block_num))
+            .hash
+            .expect(&format!("{} no blockhash", block_num));
 
         let ret = self
             .eth_adapter
@@ -695,7 +706,8 @@ impl IngestorAdapterTrait<Chain> for IngestorAdapter {
             .compat()
             .await?;
 
-        info!(self.logger,
+        info!(
+            self.logger,
             "=early_ingest_block upsert_block {}", block_num
         );
 

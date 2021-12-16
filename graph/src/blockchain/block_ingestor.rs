@@ -62,9 +62,7 @@ where
                     );
                 }
                 Err(IngestorError::EarlyBlockFinished(_)) => {
-                    warn!(
-                        self.logger,
-                        "Syncing earlyblock finished");
+                    warn!(self.logger, "Syncing earlyblock finished");
                     break;
                 }
                 _ => (),
@@ -77,7 +75,6 @@ where
             tokio::time::sleep(self.polling_interval).await;
         }
     }
-
 
     pub async fn into_polling_stream(self) {
         loop {
@@ -137,11 +134,8 @@ where
     async fn early_do_poll(&self) -> Result<i32, IngestorError> {
         trace!(self.logger, "BlockIngestor::early_do_poll");
 
-        info!(
-            self.logger,
-            "=get earlystatus from db"
-        );
-        let early_head_block_ptr_opt  = self.adapter.chain_early_head_ptr()?;
+        info!(self.logger, "=get earlystatus from db");
+        let early_head_block_ptr_opt = self.adapter.chain_early_head_ptr()?;
         let early_head_block_ptr = match early_head_block_ptr_opt {
             None => {
                 // Get chain head ptr from store
@@ -152,17 +146,23 @@ where
                     }
                     Some(x) => x,
                 }
-            },
+            }
             Some(x) => {
                 if x.number == 0 {
-                    return Err(IngestorError::EarlyBlockFinished(web3::types::H256::from_slice(x.hash.as_slice())));
+                    return Err(IngestorError::EarlyBlockFinished(
+                        web3::types::H256::from_slice(x.hash.as_slice()),
+                    ));
                 }
                 x
             }
         };
 
-        let ancestor  = self.adapter.ancestor_count();
-        let blocks_needed = (early_head_block_ptr.number).min(ancestor);
+        let blocks_needed = self.adapter.early_block_task_count();
+        let mut earliest_num = early_head_block_ptr.number - blocks_needed;
+        if earliest_num < 0 {
+            earliest_num = 0;
+        }
+        let mut eblock_num = early_head_block_ptr.number;
 
         info!(
             self.logger,
@@ -171,33 +171,32 @@ where
             "current_block_head" => early_head_block_ptr.number
         );
 
-        // 
-        let mut num = early_head_block_ptr.number;
+        //
         let mut handles = Vec::new();
-        let mut earlynum = early_head_block_ptr.number - ancestor;
-        if earlynum < 0{
-            earlynum = 0;
-        }
-        while num > earlynum {
-            handles.push(async move {self.adapter.early_ingest_block(num).await});
-            num -= 1;
+
+
+        while eblock_num > earliest_num {
+            let a = Arc::clone(&self.adapter);
+
+            handles.push(tokio::task::spawn_blocking(move || {
+                tokio::runtime::Handle::current().block_on(a.early_ingest_block(eblock_num))
+            }));
+
+            eblock_num -= 1;
         }
 
-        info!(
-            self.logger,
-            "Early Syncing await...",
-        );
-        let mut rets = Vec::new();
-        for handle in handles {
-            let ret = handle.await?;
-            rets.push(ret.unwrap());
-        }
-        info!(
-            self.logger,
-            "Early Syncing Result Check...",
-        );
+        info!(self.logger, "Early Syncing await...",);
+        let mut rets = futures03::future::join_all(handles)
+            .await
+            .into_iter()
+            .map(|x| {
+                x.expect("block_on future").expect("early_ingest_block").unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        info!(self.logger, "Early Syncing Result Check...",);
         // sort by rets'blocknum
-        rets.sort_by(|a,b| {
+        rets.sort_by(|a, b| {
             if a.0 < b.0 {
                 return std::cmp::Ordering::Less;
             }
@@ -206,16 +205,15 @@ where
         // todo: check blocks parenthash
 
         // uphead
-        self.adapter.early_ingest_block_head_update(
-        early_head_block_ptr.number - ancestor,
-    rets[0].2
-        ).await?;
+        self.adapter
+            .early_ingest_block_head_update(earliest_num, rets[0].2)
+            .await?;
 
         info!(
             self.logger,
-            "=early_ingest_block {} finished", early_head_block_ptr.number
+            "Early Syncing finished, The next band begin on {} ", earliest_num
         );
-        Ok(early_head_block_ptr.number - ancestor)
+        Ok(earliest_num)
     }
 
     async fn do_poll(&self) -> Result<(), IngestorError> {

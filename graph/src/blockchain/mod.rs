@@ -151,7 +151,7 @@ impl From<Error> for IngestorError {
 }
 
 #[async_trait]
-pub trait IngestorAdapter<C: Blockchain> {
+pub trait IngestorAdapter<C: Blockchain>: Send + Sync {
     fn logger(&self) -> &Logger;
 
     /// How many ancestors of the current chain head to ingest. For chains
@@ -161,15 +161,22 @@ pub trait IngestorAdapter<C: Blockchain> {
     /// the main chain even if those blocks get removed from the network
     /// client.
     fn ancestor_count(&self) -> BlockNumber;
-
+    fn early_block_task_count(&self) -> BlockNumber;
     /// Get the latest block from the chain
     async fn latest_block(&self) -> Result<BlockPtr, IngestorError>;
 
     /// Retrieve all necessary data for the block  `hash` from the chain and
     /// store it in the database
     async fn ingest_block(&self, hash: &BlockHash) -> Result<Option<BlockHash>, IngestorError>;
-    async fn early_ingest_block(&self, num: BlockNumber) -> Result<Option<(BlockNumber, H256, H256)>, Error>;
-    async fn early_ingest_block_head_update(&self, parent_num: BlockNumber, parent_hash: H256) -> Result<(), Error>;
+    async fn early_ingest_block(
+        &self,
+        num: BlockNumber,
+    ) -> Result<Option<(BlockNumber, H256, H256)>, Error>;
+    async fn early_ingest_block_head_update(
+        &self,
+        parent_num: BlockNumber,
+        parent_hash: H256,
+    ) -> Result<(), Error>;
     /// Return the chain head that is stored locally, and therefore visible
     /// to the block streams of subgraphs
     fn chain_head_ptr(&self) -> Result<Option<BlockPtr>, Error>;
