@@ -46,6 +46,13 @@ impl From<SubgraphHealth> for graph::data::subgraph::schema::SubgraphHealth {
         }
     }
 }
+table! {
+    subgraphs.subgraph_filter (id) {
+        id -> Integer,
+        deployment -> Text,
+        addrs -> Text,
+    }
+}
 
 table! {
     subgraphs.subgraph_deployment (id) {
@@ -314,6 +321,31 @@ pub fn revert_block_ptr(
         .execute(conn)
         .map(|_| ())
         .map_err(|e| e.into())
+}
+
+#[derive(Debug, Queryable)]
+#[diesel(table_name = subgraph_filter)]
+pub struct Addrs {
+    addr: String,
+}
+use web3::types::H160;
+pub fn get_filter_addrs(conn: &PgConnection, id: String) -> Result<Vec<H160>, StoreError> {
+    use subgraph_filter as sf;
+
+    let rst = sf::table
+        .filter(sf::deployment.eq(id))
+        .select((sf::addrs,))
+        .get_results::<Addrs>(conn)?;
+
+    let addrs = rst
+        .iter()
+        .map(|x| {
+            let addr = x.addr.trim_start_matches("0x");
+            // todo: operator ? in closure
+            H160::from_str(addr).expect("Failed to convert string to Address/H160")
+        })
+        .collect::<Vec<_>>();
+    Ok(addrs)
 }
 
 pub fn block_ptr(conn: &PgConnection, id: &DeploymentHash) -> Result<Option<BlockPtr>, StoreError> {

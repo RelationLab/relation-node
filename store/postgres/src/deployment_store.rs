@@ -671,10 +671,14 @@ impl DeploymentStore {
         .await
     }
 }
-
+use web3::types::H160;
 /// Methods that back the trait `graph::components::Store`, but have small
 /// variations in their signatures
 impl DeploymentStore {
+    pub(crate) fn get_filter_addrs(&self, id: String) -> Result<Vec<H160>, Error> {
+        let conn = self.get_conn()?;
+        Ok(deployment::get_filter_addrs(&conn, id)?)
+    }
     pub(crate) fn block_ptr(&self, site: &Site) -> Result<Option<BlockPtr>, Error> {
         let conn = self.get_conn()?;
         Self::block_ptr_with_conn(&site.deployment, &conn)

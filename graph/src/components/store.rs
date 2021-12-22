@@ -988,9 +988,10 @@ pub trait SubgraphStore: Send + Sync + 'static {
     /// Find the deployment locators for the subgraph with the given hash
     fn locators(&self, hash: &str) -> Result<Vec<DeploymentLocator>, StoreError>;
 }
-
+use web3::types::H160;
 #[async_trait]
 pub trait WritableStore: Send + Sync + 'static {
+    async fn get_filter_addrs(&self, id: String) -> Result<Vec<H160>, Error>;
     /// Get a pointer to the most recently processed block in the subgraph.
     fn block_ptr(&self) -> Result<Option<BlockPtr>, Error>;
 
@@ -1167,6 +1168,9 @@ impl SubgraphStore for MockStore {
 // The store trait must be implemented manually because mockall does not support async_trait, nor borrowing from arguments.
 #[async_trait]
 impl WritableStore for MockStore {
+    async fn get_filter_addrs(&self, id: String) -> Result<Vec<H160>, Error> {
+        unimplemented!()
+    }
     fn block_ptr(&self) -> Result<Option<BlockPtr>, Error> {
         unimplemented!()
     }
@@ -1280,7 +1284,7 @@ pub trait ChainStore: Send + Sync + 'static {
     async fn early_attempt_chain_head_update(
         self: Arc<Self>,
         parent_num: BlockNumber,
-        parent_hash: H256
+        parent_hash: H256,
     ) -> Result<(), Error>;
     /// Get the current head block pointer for this chain.
     /// Any changes to the head block pointer will be to a block with a larger block number, never

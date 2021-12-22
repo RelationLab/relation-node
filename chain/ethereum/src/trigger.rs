@@ -303,6 +303,14 @@ impl PartialOrd for EthereumTrigger {
 }
 
 impl TriggerData for EthereumTrigger {
+    fn contain_addrs(&self, addr: &Vec<H160>) -> bool {
+        let address = match self {
+            EthereumTrigger::Log(log) => log.address,
+            EthereumTrigger::Call(call) => call.from,
+            EthereumTrigger::Block(..) => return false,
+        };
+        addr.contains(&address)
+    }
     fn error_context(&self) -> std::string::String {
         let transaction_id = match self {
             EthereumTrigger::Log(log) => log.transaction_hash,

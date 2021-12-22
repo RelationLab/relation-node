@@ -191,8 +191,8 @@ pub trait IngestorAdapter<C: Blockchain>: Send + Sync {
         Ok(None)
     }
 }
-
 pub trait TriggerFilter<C: Blockchain>: Default + Clone + Send + Sync {
+    fn set_sub_id(&mut self, id: String);
     fn from_data_sources<'a>(
         data_sources: impl Iterator<Item = &'a C::DataSource> + Clone,
     ) -> Self {
@@ -268,8 +268,9 @@ pub trait UnresolvedDataSource<C: Blockchain>:
         logger: &Logger,
     ) -> Result<C::DataSource, anyhow::Error>;
 }
-
+use web3::types::H160;
 pub trait TriggerData {
+    fn contain_addrs(&self, addr: &Vec<H160>) -> bool;
     /// If there is an error when processing this trigger, this will called to add relevant context.
     /// For example an useful return is: `"block #<N> (<hash>), transaction <tx_hash>".
     fn error_context(&self) -> String;

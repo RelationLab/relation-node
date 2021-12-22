@@ -96,6 +96,7 @@ pub struct TriggerFilter {
     pub(crate) log: EthereumLogFilter,
     pub(crate) call: EthereumCallFilter,
     pub(crate) block: EthereumBlockFilter,
+    pub(crate) subgraph_id: String,
 }
 
 impl TriggerFilter {
@@ -105,6 +106,10 @@ impl TriggerFilter {
 }
 
 impl bc::TriggerFilter<Chain> for TriggerFilter {
+    fn set_sub_id(&mut self, id: String) {
+        self.subgraph_id = id;
+    }
+
     fn from_data_sources<'a>(data_sources: impl Iterator<Item = &'a DataSource> + Clone) -> Self {
         let mut this = Self::default();
         this.extend(data_sources);

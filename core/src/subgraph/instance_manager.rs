@@ -25,9 +25,11 @@ use graph::{
 };
 use lazy_static::lazy_static;
 use std::collections::{BTreeSet, HashMap};
+use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 use tokio::task;
+use web3::types::H160;
 
 lazy_static! {
     /// Size limit of the entity LFU cache, in bytes.
@@ -42,6 +44,12 @@ lazy_static! {
     // Used for testing Graph Node itself.
     pub static ref DISABLE_FAIL_FAST: bool =
         std::env::var("GRAPH_DISABLE_FAIL_FAST").is_ok();
+
+    pub static ref SUBGRAPH_ALLOWEDLIST: String =
+        std::env::var("SUBGRAPH_ALLOWEDLIST")
+        .unwrap_or("".to_string())
+        .parse::<String>()
+        .expect("invalid SUBGRAPH_ALLOWEDLIST");
 }
 
 type SharedInstanceKeepAliveMap = Arc<RwLock<HashMap<DeploymentId, CancelGuard>>>;
@@ -328,7 +336,7 @@ where
             .clone();
 
         // Obtain filters from the manifest
-        let filter = C::TriggerFilter::from_data_sources(manifest.data_sources.iter());
+        let mut filter = C::TriggerFilter::from_data_sources(manifest.data_sources.iter());
         let start_blocks = manifest.start_blocks();
 
         let templates = Arc::new(manifest.templates.clone());
@@ -385,6 +393,9 @@ where
         let unified_api_version = manifest.unified_mapping_api_version()?;
         let instance =
             SubgraphInstance::from_manifest(&logger, manifest, host_builder, host_metrics.clone())?;
+
+        // todo filterout subgraphid
+        filter.set_sub_id(instance.subgraph_id.clone().as_str().to_string());
 
         // The subgraph state tracks the state of the subgraph instance over time
         let ctx = IndexingContext {
@@ -479,9 +490,23 @@ where
 
         debug!(logger, "Starting block stream");
 
+        // todo: filterout trigger by allowedlist
+        // get addresslist
+        // let addrs = store_for_err
+        //     .get_filter_addrs(ctx.state.instance.subgraph_id.clone().as_str().to_string())
+        //     .await?;
+        let allowdlist = SUBGRAPH_ALLOWEDLIST.split(",").collect::<Vec<_>>();
+        let addrs = allowdlist
+            .iter()
+            .filter(|x| x.len() > 0)
+            .map(|x| {
+                let s = x.trim().trim_start_matches("0x");
+                H160::from_str(s).expect("Failed to convert string to Address/H160")
+            })
+            .collect::<Vec<_>>();
         // Process events from the stream as long as no restart is needed
         loop {
-            let (block, cursor) = match block_stream.next().await {
+            let (mut block, cursor) = match block_stream.next().await {
                 Some(Ok(BlockStreamEvent::ProcessBlock(block, cursor))) => (block, cursor),
                 Some(Ok(BlockStreamEvent::Revert(subgraph_ptr, _))) => {
                     info!(
@@ -548,6 +573,10 @@ where
             };
 
             let block_ptr = block.ptr();
+
+            // todo: retain trigger_data by allowedaddrs
+            use graph::blockchain::TriggerData;
+            block.trigger_data.retain(|t| t.contain_addrs(&addrs));
 
             if block.trigger_count() > 0 {
                 subgraph_metrics

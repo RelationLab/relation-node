@@ -19,7 +19,7 @@ lazy_static! {
 }
 
 pub struct SubgraphInstance<C: Blockchain, T: RuntimeHostBuilder<C>> {
-    subgraph_id: DeploymentHash,
+    pub subgraph_id: DeploymentHash,
     network: String,
     host_builder: T,
 

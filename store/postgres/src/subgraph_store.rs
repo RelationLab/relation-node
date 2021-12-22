@@ -1053,9 +1053,13 @@ impl WritableStore {
         })
     }
 }
-
+use web3::types::H160;
 #[async_trait::async_trait]
 impl WritableStoreTrait for WritableStore {
+    async fn get_filter_addrs(&self, id: String) -> Result<Vec<H160>, Error> {
+        self.writable.get_filter_addrs(id)
+    }
+
     fn block_ptr(&self) -> Result<Option<BlockPtr>, Error> {
         self.writable.block_ptr(self.site.as_ref())
     }
