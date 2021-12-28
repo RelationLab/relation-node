@@ -508,8 +508,11 @@ mod data {
 	              id               bytea not null primary key,
 	              return_value     bytea not null,
 	              contract_address bytea not null,
-	              block_number     int4 not null
+	              block_number     int4 not null,
+                  method_id         bytea not null,
+                  method_params     Text
                 );
+                comment on column {nsp}.call_cache.method_params is 'call-params split by ,';
 
                 create table {nsp}.call_meta (
                     contract_address bytea not null primary key,
@@ -678,8 +681,6 @@ mod data {
                     // .on_conflict(b::hash)
                     // .do_nothing()
                     // .execute(conn)
-
-
 
                     for recipts in block.transaction_receipts.iter() {
                         //recipt sql insert
@@ -1187,12 +1188,11 @@ mod data {
 
             let (head_num, head_hash) = n::table
                 .filter(n::name.eq(chain))
-                .select((n::early_head_block_number,n::early_head_block_hash))
+                .select((n::early_head_block_number, n::early_head_block_hash))
                 .first::<(Option<i64>, Option<String>)>(conn)
                 .optional()?
-                .map(|(num, hash)|{
-                    (num.unwrap_or(i64::MAX), hash.unwrap_or("".to_string()))
-                }).unwrap();
+                .map(|(num, hash)| (num.unwrap_or(i64::MAX), hash.unwrap_or("".to_string())))
+                .unwrap();
 
             match self {
                 Storage::Shared => {
@@ -1412,6 +1412,8 @@ mod data {
             contract_address: &[u8],
             block_number: i32,
             return_value: &[u8],
+            method_id: &[u8],
+            call_args: Vec<String>,
         ) -> Result<(), Error> {
             let result = match self {
                 Storage::Shared => {
@@ -1448,8 +1450,8 @@ mod data {
                     ..
                 }) => {
                     let query = format!(
-                        "insert into {}(id, contract_address, block_number, return_value) \
-                         values ($1, $2, $3, $4) on conflict do nothing",
+                        "insert into {}(id, contract_address, block_number, return_value, method_id, method_params) \
+                         values ($1, $2, $3, $4, $5, $6) on conflict do nothing",
                         call_cache.qname
                     );
                     sql_query(query)
@@ -1457,8 +1459,13 @@ mod data {
                         .bind::<Bytea, _>(contract_address)
                         .bind::<Integer, _>(block_number)
                         .bind::<Bytea, _>(return_value)
+                        .bind::<Bytea, _>(method_id)
+                        .bind::<Text, _>(if (call_args.len() == 0) {
+                            "".to_string()
+                        } else {
+                            call_args.join(",")
+                        })
                         .execute(conn)?;
-
                     let query = format!(
                         "insert into {}(contract_address, accessed_at) \
                          values ($1, CURRENT_DATE) \
@@ -1733,28 +1740,26 @@ impl ChainStoreTrait for ChainStore {
     async fn early_attempt_chain_head_update(
         self: Arc<Self>,
         parent_num: BlockNumber,
-        parent_hash: H256
-    ) -> Result<(), Error>
-    {
+        parent_hash: H256,
+    ) -> Result<(), Error> {
         use public::ethereum_networks as n;
         let chain_store = self.clone();
-        let ret = self.pool
+        let ret = self
+            .pool
             .with_conn(move |conn, _| {
                 let hash = format!("{:x}", parent_hash);
                 let number = parent_num as i64;
 
-                conn.transaction(
-                    || -> Result<(), StoreError> {
-                        update(n::table.filter(n::name.eq(&chain_store.chain)))
-                            .set((
-                                n::early_head_block_hash.eq(&hash),
-                                n::early_head_block_number.eq(number),
-                                n::early_head_updated.eq(diesel::dsl::now),
-                            ))
-                            .execute(conn)?;
-                        Ok(())
-                    },
-                )
+                conn.transaction(|| -> Result<(), StoreError> {
+                    update(n::table.filter(n::name.eq(&chain_store.chain)))
+                        .set((
+                            n::early_head_block_hash.eq(&hash),
+                            n::early_head_block_number.eq(number),
+                            n::early_head_updated.eq(diesel::dsl::now),
+                        ))
+                        .execute(conn)?;
+                    Ok(())
+                })
                 .map_err(CancelableError::from)
             })
             .await?;
@@ -1841,7 +1846,6 @@ impl ChainStoreTrait for ChainStore {
             })
             .map_err(Error::from)
     }
-
 
     fn chain_head_ptr(&self) -> Result<Option<BlockPtr>, Error> {
         use public::ethereum_networks::dsl::*;
@@ -2021,6 +2025,7 @@ impl EthereumCallCache for ChainStore {
         encoded_call: &[u8],
         block: BlockPtr,
         return_value: &[u8],
+        call_args: Vec<String>,
     ) -> Result<(), Error> {
         let id = contract_call_id(&contract_address, encoded_call, &block);
         let conn = &*self.get_conn()?;
@@ -2031,6 +2036,8 @@ impl EthereumCallCache for ChainStore {
                 contract_address.as_ref(),
                 block.number as i32,
                 return_value,
+                encoded_call,
+                call_args,
             )
         })
     }

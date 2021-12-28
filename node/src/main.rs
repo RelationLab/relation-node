@@ -187,7 +187,6 @@ async fn main() {
     let mut metrics_server =
         PrometheusMetricsServer::new(&logger_factory, prometheus_registry.clone());
 
-
     // Ethereum clients; query nodes ignore all ethereum clients and never
     // connect to them directly
     let eth_networks = if query_only {
@@ -205,7 +204,6 @@ async fn main() {
             .await
             .expect("Failed to parse Firehose networks")
     };
-
 
     let graphql_metrics_registry = metrics_registry.clone();
 
@@ -524,7 +522,6 @@ async fn create_ethereum_networks(
                 );
 
                 use crate::config::Transport::*;
-
                 let (transport_event_loop, transport) = match web3.transport {
                     Rpc => Transport::new_rpc(&web3.url, web3.headers),
                     Ipc => Transport::new_ipc(&web3.url),

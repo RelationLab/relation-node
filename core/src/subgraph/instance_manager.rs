@@ -395,7 +395,7 @@ where
             SubgraphInstance::from_manifest(&logger, manifest, host_builder, host_metrics.clone())?;
 
         // todo filterout subgraphid
-        filter.set_sub_id(instance.subgraph_id.clone().as_str().to_string());
+        // filter.set_sub_id(instance.subgraph_id.clone().as_str().to_string());
 
         // The subgraph state tracks the state of the subgraph instance over time
         let ctx = IndexingContext {
@@ -573,16 +573,16 @@ where
             };
 
             let block_ptr = block.ptr();
-
-            // todo: retain trigger_data by allowedaddrs
-            use graph::blockchain::TriggerData;
-            block.trigger_data.retain(|t| t.contain_addrs(&addrs));
-
             if block.trigger_count() > 0 {
                 subgraph_metrics
                     .block_trigger_count
                     .observe(block.trigger_count() as f64);
             }
+            // todo: retain trigger_data by allowedaddrs
+            use graph::blockchain::TriggerData;
+            block.trigger_data.retain(|t| t.contain_addrs(&addrs));
+
+
 
             let start = Instant::now();
             let deployment_failed = ctx.block_stream_metrics.deployment_failed.clone();

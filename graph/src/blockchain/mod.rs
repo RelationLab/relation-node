@@ -192,7 +192,7 @@ pub trait IngestorAdapter<C: Blockchain>: Send + Sync {
     }
 }
 pub trait TriggerFilter<C: Blockchain>: Default + Clone + Send + Sync {
-    fn set_sub_id(&mut self, id: String);
+    // fn set_sub_id(&mut self, id: String);
     fn from_data_sources<'a>(
         data_sources: impl Iterator<Item = &'a C::DataSource> + Clone,
     ) -> Self {

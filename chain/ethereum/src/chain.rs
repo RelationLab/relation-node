@@ -668,10 +668,6 @@ impl IngestorAdapterTrait<Chain> for IngestorAdapter {
         block_num: BlockNumber,
     ) -> Result<Option<(BlockNumber, H256, H256)>, Error> {
         // println!("spawned thread print {:?}", std::thread::current());
-        info!(
-            self.logger,
-            "=early_ingest_block block_by_number {}", block_num
-        );
         let block = self
             .eth_adapter
             .block_by_number(&self.logger, block_num)
@@ -705,12 +701,6 @@ impl IngestorAdapterTrait<Chain> for IngestorAdapter {
             .load_full_block(&self.logger, block)
             .compat()
             .await?;
-
-        info!(
-            self.logger,
-            "=early_ingest_block upsert_block {}", block_num
-        );
-
         self.chain_store.upsert_block(block).await?;
         return Ok(Some((block_num, block_hash, parent_hash)));
     }

@@ -134,7 +134,6 @@ where
     async fn early_do_poll(&self) -> Result<i32, IngestorError> {
         trace!(self.logger, "BlockIngestor::early_do_poll");
 
-        info!(self.logger, "=get earlystatus from db");
         let early_head_block_ptr_opt = self.adapter.chain_early_head_ptr()?;
         let early_head_block_ptr = match early_head_block_ptr_opt {
             None => {

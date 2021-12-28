@@ -1325,8 +1325,14 @@ impl EthereumAdapterTrait for EthereumAdapter {
                             // Don't block handler execution on writing to the cache.
                             let for_cache = result.0.clone();
                             let _ = graph::spawn_blocking_allow_panic(move || {
+                                let args = call.args
+                                    .iter()
+                                    .map(|x|{
+                                        x.to_string()
+                                    })
+                                    .collect::<Vec<String>>();
                                 cache
-                                    .set_call(call.address, &call_data, call.block_ptr, &for_cache)
+                                    .set_call(call.address, &call_data, call.block_ptr, &for_cache, args)
                                     .map_err(|e| {
                                         error!(logger, "call cache set error";
                                                    "error" => e.to_string())

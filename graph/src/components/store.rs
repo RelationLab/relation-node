@@ -1351,6 +1351,7 @@ pub trait EthereumCallCache: Send + Sync + 'static {
         encoded_call: &[u8],
         block: BlockPtr,
         return_value: &[u8],
+        call_args: Vec<String>,
     ) -> Result<(), Error>;
 }
 
