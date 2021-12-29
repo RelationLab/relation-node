@@ -14,7 +14,7 @@ then
     REPO_NAME="Checkout of $(git remote get-url origin) at $(git describe --dirty)"
     BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
 fi
-for stage in graph-node-build graph-node graph-node-debug
+for stage in graph-node
 do
     $docker build --target $stage \
             --build-arg "COMMIT_SHA=$COMMIT_SHA" \
