@@ -1460,7 +1460,7 @@ mod data {
                         .bind::<Integer, _>(block_number)
                         .bind::<Bytea, _>(return_value)
                         .bind::<Bytea, _>(method_id)
-                        .bind::<Text, _>(if (call_args.len() == 0) {
+                        .bind::<Text, _>(if call_args.len() == 0 {
                             "".to_string()
                         } else {
                             call_args.join(",")
@@ -1744,7 +1744,7 @@ impl ChainStoreTrait for ChainStore {
     ) -> Result<(), Error> {
         use public::ethereum_networks as n;
         let chain_store = self.clone();
-        let ret = self
+        let _ret = self
             .pool
             .with_conn(move |conn, _| {
                 let hash = format!("{:x}", parent_hash);

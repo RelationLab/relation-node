@@ -1,9 +1,11 @@
-use std::{cmp::Ordering, sync::Arc, time::Duration};
-
 use crate::{
     blockchain::{Blockchain, IngestorAdapter, IngestorError},
-    prelude::{info, lazy_static, tokio, trace, warn, Error, LogCode, Logger},
+    prelude::{info, lazy_static, tokio, trace, warn, BlockNumber, Error, LogCode, Logger},
+    task_spawn::{block_on, spawn_blocking_allow_panic},
 };
+use std::{cmp::Ordering, sync::Arc, time::Duration};
+use tokio::task::JoinHandle;
+use web3::types::H256;
 
 lazy_static! {
     // graph_node::config disallows setting this in a store with multiple
@@ -171,15 +173,19 @@ where
             "current_block_head" => early_head_block_ptr.number
         );
 
-        let handles = (start_head_block_num..early_head_block_num).rev().into_iter().map(|block_num| {
-            let adapter = Arc::clone(&self.adapter);
-            tokio::task::spawn_blocking(move || {
-                tokio::runtime::Handle::current().block_on(adapter.early_ingest_block(block_num))
+        info!(
+            self.logger,
+            "Early Syncing [{} to {})...", start_head_block_num, early_head_block_num
+        );
+        let futures = (start_head_block_num..early_head_block_num)
+            .rev()
+            .into_iter()
+            .map(|block_num| {
+                let adapter = Arc::clone(&self.adapter);
+                spawn_blocking_allow_panic(move || block_on(adapter.early_ingest_block(block_num)))
             })
-        }).collect::<Vec<_>>();
-
-        info!(self.logger, "Early Syncing [{} to {})...", start_head_block_num, early_head_block_num);
-        let stored_blocks = futures03::future::join_all(handles)
+            .collect::<Vec<JoinHandle<Result<Option<(BlockNumber, H256, H256)>, Error>>>>();
+        let stored_blocks = futures03::future::join_all(futures)
             .await
             .into_iter()
             .map(|x| {
@@ -204,7 +210,8 @@ where
 
         info!(
             self.logger,
-            "Early Syncing finished, The next band begin on {} ", earliest_block_num.clone()
+            "Early Syncing finished, The next band begin on {} ",
+            earliest_block_num.clone()
         );
         Ok(earliest_block_num)
     }
