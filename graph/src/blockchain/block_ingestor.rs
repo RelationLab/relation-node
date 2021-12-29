@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{cmp::Ordering, sync::Arc, time::Duration};
 
 use crate::{
     blockchain::{Blockchain, IngestorAdapter, IngestorError},
@@ -61,8 +61,11 @@ where
                         "Trying again after block polling failed: {}", inner_err
                     );
                 }
+                Err(IngestorError::EarlyBlockUninitialized()) => {
+                    warn!(self.logger, "Trying again after early block initialized");
+                }
                 Err(IngestorError::EarlyBlockFinished(_)) => {
-                    warn!(self.logger, "Syncing earlyblock finished");
+                    warn!(self.logger, "Syncing early block finished");
                     break;
                 }
                 _ => (),
@@ -141,7 +144,7 @@ where
                 let head_block_ptr_opt = self.adapter.chain_head_ptr()?;
                 match head_block_ptr_opt {
                     None => {
-                        return Err(IngestorError::Unknown(anyhow::anyhow!("no blockhead")));
+                        return Err(IngestorError::EarlyBlockUninitialized());
                     }
                     Some(x) => x,
                 }
@@ -156,12 +159,10 @@ where
             }
         };
 
-        let blocks_needed = self.adapter.early_block_task_count();
-        let mut earliest_num = early_head_block_ptr.number - blocks_needed;
-        if earliest_num < 0 {
-            earliest_num = 0;
-        }
-        let mut eblock_num = early_head_block_ptr.number;
+        let task_count = self.adapter.early_block_task_count();
+        let early_head_block_num = early_head_block_ptr.number;
+        let blocks_needed = task_count.min(early_head_block_num);
+        let start_head_block_num = early_head_block_num - blocks_needed;
 
         info!(
             self.logger,
@@ -170,49 +171,42 @@ where
             "current_block_head" => early_head_block_ptr.number
         );
 
-        //
-        let mut handles = Vec::new();
+        let handles = (start_head_block_num..early_head_block_num).rev().into_iter().map(|block_num| {
+            let adapter = Arc::clone(&self.adapter);
+            tokio::task::spawn_blocking(move || {
+                tokio::runtime::Handle::current().block_on(adapter.early_ingest_block(block_num))
+            })
+        }).collect::<Vec<_>>();
 
-
-        while eblock_num > earliest_num {
-            let a = Arc::clone(&self.adapter);
-
-            handles.push(tokio::task::spawn_blocking(move || {
-                tokio::runtime::Handle::current().block_on(a.early_ingest_block(eblock_num))
-            }));
-
-            eblock_num -= 1;
-        }
-
-        info!(self.logger, "Early Syncing await...",);
-        let mut rets = futures03::future::join_all(handles)
+        info!(self.logger, "Early Syncing [{} to {})...", start_head_block_num, early_head_block_num);
+        let stored_blocks = futures03::future::join_all(handles)
             .await
             .into_iter()
             .map(|x| {
-                x.expect("block_on future").expect("early_ingest_block").unwrap()
+                x.expect("block_on future")
+                    .expect("early_ingest_block")
+                    .unwrap()
             })
             .collect::<Vec<_>>();
 
         info!(self.logger, "Early Syncing Result Check...",);
-        // sort by rets'blocknum
-        rets.sort_by(|a, b| {
-            if a.0 < b.0 {
-                return std::cmp::Ordering::Less;
-            }
-            return std::cmp::Ordering::Greater;
-        });
-        // todo: check blocks parenthash
 
-        // uphead
+        let (earliest_block_num, earliest_block_hash, _) = stored_blocks
+            .into_iter()
+            .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(Ordering::Less))
+            .unwrap();
+        // todo: check blocks parent hash
+
+        // update synced early head
         self.adapter
-            .early_ingest_block_head_update(earliest_num, rets[0].2)
+            .early_ingest_block_head_update(earliest_block_num.clone(), earliest_block_hash)
             .await?;
 
         info!(
             self.logger,
-            "Early Syncing finished, The next band begin on {} ", earliest_num
+            "Early Syncing finished, The next band begin on {} ", earliest_block_num.clone()
         );
-        Ok(earliest_num)
+        Ok(earliest_block_num)
     }
 
     async fn do_poll(&self) -> Result<(), IngestorError> {

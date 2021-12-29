@@ -140,6 +140,9 @@ pub enum IngestorError {
     #[error("Ingestor error: {0}")]
     Unknown(Error),
 
+    #[error("EarlyBlock uninitialized")]
+    EarlyBlockUninitialized(),
+
     #[error("EarlyBlock get finished: {0}")]
     EarlyBlockFinished(H256),
 }
@@ -168,14 +171,19 @@ pub trait IngestorAdapter<C: Blockchain>: Send + Sync {
     /// Retrieve all necessary data for the block  `hash` from the chain and
     /// store it in the database
     async fn ingest_block(&self, hash: &BlockHash) -> Result<Option<BlockHash>, IngestorError>;
+
+    /// Return the block number, hash, parent hash
+    /// Retrieve all necessary data for the block `num` from the chain and
+    /// store it in the database
     async fn early_ingest_block(
         &self,
         num: BlockNumber,
     ) -> Result<Option<(BlockNumber, H256, H256)>, Error>;
+
     async fn early_ingest_block_head_update(
         &self,
-        parent_num: BlockNumber,
-        parent_hash: H256,
+        block_num: BlockNumber,
+        block_hash: H256,
     ) -> Result<(), Error>;
     /// Return the chain head that is stored locally, and therefore visible
     /// to the block streams of subgraphs
