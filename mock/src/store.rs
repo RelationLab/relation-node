@@ -25,6 +25,14 @@ mock! {
 
         async fn attempt_chain_head_update(self: Arc<Self>, ancestor_count: BlockNumber) -> Result<Option<H256>, Error>;
 
+        async fn early_attempt_chain_head_update(
+            self: Arc<Self>,
+            parent_num: BlockNumber,
+            parent_hash: H256,
+        ) -> Result<(), Error>;
+
+        fn chain_early_head_ptr(&self) -> Result<Option<BlockPtr>, Error>;
+
         fn chain_head_ptr(&self) -> Result<Option<BlockPtr>, Error>;
 
         fn blocks(&self, hashes: Vec<H256>) -> Result<Vec<LightEthereumBlock>, Error>;

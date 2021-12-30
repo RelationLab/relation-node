@@ -1,10 +1,9 @@
 use crate::{
     blockchain::{Blockchain, IngestorAdapter, IngestorError},
-    prelude::{info, lazy_static, tokio, trace, warn, BlockNumber, Error, LogCode, Logger},
+    prelude::{info, lazy_static, tokio, trace, warn, Error, LogCode, Logger},
     task_spawn::{block_on, spawn_blocking_allow_panic},
 };
 use std::{cmp::Ordering, sync::Arc, time::Duration};
-use tokio::task::JoinHandle;
 use web3::types::H256;
 
 lazy_static! {
@@ -153,9 +152,9 @@ where
             }
             Some(x) => {
                 if x.number == 0 {
-                    return Err(IngestorError::EarlyBlockFinished(
-                        web3::types::H256::from_slice(x.hash.as_slice()),
-                    ));
+                    return Err(IngestorError::EarlyBlockFinished(H256::from_slice(
+                        x.hash.as_slice(),
+                    )));
                 }
                 x
             }
@@ -184,7 +183,7 @@ where
                 let adapter = Arc::clone(&self.adapter);
                 spawn_blocking_allow_panic(move || block_on(adapter.early_ingest_block(block_num)))
             })
-            .collect::<Vec<JoinHandle<Result<Option<(BlockNumber, H256, H256)>, Error>>>>();
+            .collect::<Vec<_>>();
         let stored_blocks = futures03::future::join_all(futures)
             .await
             .into_iter()

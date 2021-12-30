@@ -240,9 +240,9 @@ impl Into<EthereumBlockWithCalls> for &Block {
                         t.receipt.as_ref().map(|r| w3TransactionReceipt {
                             // todo have no value
                             effective_gas_used: U256::from(0),
-                            from:None,
-                            to:None,
-                            logs_type:None,
+                            from: None,
+                            to: None,
+                            logs_type: None,
 
                             transaction_hash: H256::from_slice(&t.hash),
                             transaction_index: U64::from(t.index),

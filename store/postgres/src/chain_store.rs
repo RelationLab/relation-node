@@ -682,26 +682,26 @@ mod data {
                     // .do_nothing()
                     // .execute(conn)
 
-                    for recipts in block.transaction_receipts.iter() {
-                        //recipt sql insert
-                        let cumulative_gas_used = format!("{}", recipts.cumulative_gas_used);
+                    for receipt in block.transaction_receipts.iter() {
+                        //receipt sql insert
+                        let cumulative_gas_used = format!("{}", receipt.cumulative_gas_used);
 
-                        let effective_gas_used = format!("{}", recipts.effective_gas_used);
+                        let effective_gas_used = format!("{}", receipt.effective_gas_used);
 
-                        let gas_used = match recipts.gas_used {
+                        let gas_used = match receipt.gas_used {
                             Some(s) => format!("{}", s),
                             None => format!("null"),
                         };
-                        let from = match recipts.from {
+                        let from = match receipt.from {
                             Some(s) => format!("'{:x}'", s),
                             None => format!("null"),
                         };
-                        let to = match recipts.to {
+                        let to = match receipt.to {
                             Some(s) => format!("'{:x}'", s),
                             None => format!("null"),
                         };
 
-                        let values = recipts
+                        let values = receipt
                             .logs
                             .iter()
                             .map(|log| {

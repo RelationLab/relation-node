@@ -80,7 +80,6 @@ pub struct Chain {
     reorg_threshold: BlockNumber,
     pub is_ingestible: bool,
     earlyblock_task_cnt: BlockNumber,
-    
 }
 
 impl std::fmt::Debug for Chain {
@@ -634,10 +633,10 @@ impl IngestorAdapterTrait<Chain> for IngestorAdapter {
         &self.logger
     }
 
-    
     fn early_block_task_count(&self) -> BlockNumber {
         self.earlyblock_task_cnt
     }
+    
     fn ancestor_count(&self) -> BlockNumber {
         self.ancestor_count
     }

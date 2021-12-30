@@ -996,7 +996,6 @@ impl EthereumAdapterTrait for EthereumAdapter {
         let web3 = self.web3.clone();
         let logger = logger.clone();
 
-        
         let ret = retry("eth_getBlockByHash RPC call", &logger)
             .limit(*REQUEST_RETRIES)
             .timeout_secs(*JSON_RPC_TIMEOUT)
@@ -1007,14 +1006,15 @@ impl EthereumAdapterTrait for EthereumAdapter {
                     .compat()
             });
 
-
-        Box::new(ret.map_err(move |e| {
-            e.into_inner().unwrap_or_else(move || {
-                anyhow!("Ethereum node took too long to return block {}", block_hash)
+        Box::new(
+            ret.map_err(move |e| {
+                e.into_inner().unwrap_or_else(move || {
+                    anyhow!("Ethereum node took too long to return block {}", block_hash)
+                })
             })
-        })
-        .boxed()
-        .compat(),)
+            .boxed()
+            .compat(),
+        )
     }
 
     fn block_by_number(
@@ -1325,14 +1325,19 @@ impl EthereumAdapterTrait for EthereumAdapter {
                             // Don't block handler execution on writing to the cache.
                             let for_cache = result.0.clone();
                             let _ = graph::spawn_blocking_allow_panic(move || {
-                                let args = call.args
+                                let args = call
+                                    .args
                                     .iter()
-                                    .map(|x|{
-                                        x.to_string()
-                                    })
+                                    .map(|x| x.to_string())
                                     .collect::<Vec<String>>();
                                 cache
-                                    .set_call(call.address, &call_data, call.block_ptr, &for_cache, args)
+                                    .set_call(
+                                        call.address,
+                                        &call_data,
+                                        call.block_ptr,
+                                        &for_cache,
+                                        args,
+                                    )
                                     .map_err(|e| {
                                         error!(logger, "call cache set error";
                                                    "error" => e.to_string())

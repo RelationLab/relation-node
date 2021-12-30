@@ -582,8 +582,6 @@ where
             use graph::blockchain::TriggerData;
             block.trigger_data.retain(|t| t.contain_addrs(&addrs));
 
-
-
             let start = Instant::now();
             let deployment_failed = ctx.block_stream_metrics.deployment_failed.clone();
 

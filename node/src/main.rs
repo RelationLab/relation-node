@@ -10,6 +10,7 @@ use std::str::FromStr;
 use std::time::Duration;
 use std::{collections::HashMap, env};
 use structopt::StructOpt;
+
 use tokio::sync::mpsc;
 
 use graph::blockchain::block_ingestor::BlockIngestor;
