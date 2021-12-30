@@ -58,7 +58,7 @@ ENV ethereum_polling_interval ""
 # described in ../docs/config.md
 # Using a configuration file is experimental, and the file format may
 # change in backwards-incompatible ways
-ENV GRAPH_NODE_CONFIG ""
+# ENV GRAPH_NODE_CONFIG ""
 
 # Disable core dumps; this is useful for query nodes with large caches. Set
 # this to anything to disable coredumps (via 'ulimit -c 0')
@@ -80,6 +80,7 @@ ADD docker/wait_for docker/start /usr/local/bin/
 COPY --from=graph-node-build /usr/local/cargo/bin/graph-node /usr/local/cargo/bin/graphman /usr/local/bin/
 COPY --from=graph-node-build /etc/image-info /etc/image-info
 COPY docker/Dockerfile /Dockerfile
+COPY allowlist.json /allowlist.json
 CMD start
 
 # Debug image to access core dumps

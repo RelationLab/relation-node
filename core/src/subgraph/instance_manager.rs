@@ -31,25 +31,39 @@ use std::time::Instant;
 use tokio::task;
 use web3::types::H160;
 
+// use serde_json::{Result, Value};
+use std::fs;
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AllowedList {
+    pub allowlist: Vec<String>,
+}
+
 lazy_static! {
-    /// Size limit of the entity LFU cache, in bytes.
-    // Multiplied by 1000 because the env var is in KB.
-    pub static ref ENTITY_CACHE_SIZE: usize = 1000
-        * std::env::var("GRAPH_ENTITY_CACHE_SIZE")
-            .unwrap_or("10000".into())
-            .parse::<usize>()
-            .expect("invalid GRAPH_ENTITY_CACHE_SIZE");
+/// Size limit of the entity LFU cache, in bytes.
+// Multiplied by 1000 because the env var is in KB.
+pub static ref ENTITY_CACHE_SIZE: usize = 1000
+    * std::env::var("GRAPH_ENTITY_CACHE_SIZE")
+        .unwrap_or("10000".into())
+        .parse::<usize>()
+        .expect("invalid GRAPH_ENTITY_CACHE_SIZE");
 
-    // Keep deterministic errors non-fatal even if the subgraph is pending.
-    // Used for testing Graph Node itself.
-    pub static ref DISABLE_FAIL_FAST: bool =
-        std::env::var("GRAPH_DISABLE_FAIL_FAST").is_ok();
+// Keep deterministic errors non-fatal even if the subgraph is pending.
+// Used for testing Graph Node itself.
+pub static ref DISABLE_FAIL_FAST: bool =
+    std::env::var("GRAPH_DISABLE_FAIL_FAST").is_ok();
 
-    pub static ref SUBGRAPH_ALLOWEDLIST: String =
-        std::env::var("SUBGRAPH_ALLOWEDLIST")
-        .unwrap_or("".to_string())
-        .parse::<String>()
-        .expect("invalid SUBGRAPH_ALLOWEDLIST");
+pub static ref SUBGRAPH_ALLOWEDLIST_FILEPATH: String =
+    std::env::var("SUBGRAPH_ALLOWEDLIST_FILEPATH")
+    .unwrap_or("".to_string())
+    .parse::<String>()
+    .expect("invalid SUBGRAPH_ALLOWEDLIST_FILEPATH");
+
+pub static ref allowJson: String = fs::read_to_string(SUBGRAPH_ALLOWEDLIST_FILEPATH.as_str())
+    .expect("Unable to read params, make sure config file is present in the same folder");
+
+pub static ref ALLOWEDLIST: AllowedList = serde_json::from_str(allowJson.as_str())
+    .expect("Unable to parse allowedlist");
 }
 
 type SharedInstanceKeepAliveMap = Arc<RwLock<HashMap<DeploymentId, CancelGuard>>>;
@@ -490,13 +504,9 @@ where
 
         debug!(logger, "Starting block stream");
 
-        // todo: filterout trigger by allowedlist
-        // get addresslist
-        // let addrs = store_for_err
-        //     .get_filter_addrs(ctx.state.instance.subgraph_id.clone().as_str().to_string())
-        //     .await?;
-        let allowdlist = SUBGRAPH_ALLOWEDLIST.split(",").collect::<Vec<_>>();
-        let addrs = allowdlist
+        // todo: allowedlist
+        let addrs = ALLOWEDLIST
+            .allowlist
             .iter()
             .filter(|x| x.len() > 0)
             .map(|x| {
@@ -504,6 +514,7 @@ where
                 H160::from_str(s).expect("Failed to convert string to Address/H160")
             })
             .collect::<Vec<_>>();
+
         // Process events from the stream as long as no restart is needed
         loop {
             let (mut block, cursor) = match block_stream.next().await {
@@ -572,15 +583,16 @@ where
                 None => unreachable!("The block stream stopped producing blocks"),
             };
 
+            // todo: retain trigger_data by allowedaddrs
+            use graph::blockchain::TriggerData;
+            block.trigger_data.retain(|t| t.contain_addrs(&addrs));
+
             let block_ptr = block.ptr();
             if block.trigger_count() > 0 {
                 subgraph_metrics
                     .block_trigger_count
                     .observe(block.trigger_count() as f64);
             }
-            // todo: retain trigger_data by allowedaddrs
-            use graph::blockchain::TriggerData;
-            block.trigger_data.retain(|t| t.contain_addrs(&addrs));
 
             let start = Instant::now();
             let deployment_failed = ctx.block_stream_metrics.deployment_failed.clone();
