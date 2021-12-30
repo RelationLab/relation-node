@@ -468,7 +468,7 @@ mod data {
                 create table {nsp}.transactions (
                   hash                      varchar not null primary key,
                   transaction_index         varchar not null,
-                  block_hash                varchar not null,
+                  block_hash                bytea not null,
                   block_number              int8 not null,
                   gas                       int8 not null,
                   gas_price                 int8 not null,
@@ -806,7 +806,7 @@ mod data {
                                     r#"({},{},{},{},{},{},{},{},{},{},{},{})"#,
                                     format!("'{}'", &block_hash.to_string()[..]),
                                     block_number,
-                                    format!("'{}'", &hash.to_string()[..]),
+                                    format!("'{:x}'", tx.hash),
                                     format!("'{:x}'", tx.from),
                                     match tx.to {
                                         Some(s) => format!("'{:x}'", s),
