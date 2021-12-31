@@ -19,11 +19,11 @@
     -e postgres_db=graphtest \
     -e ipfs=10.0.191.31:5001 \
     -e ethereum=privnet:http://10.0.191.31:8545 \
-    -e SUBGRAPH_ALLOWEDLIST_FILEPATH='./allowlist.json' \
+    -e SUBGRAPH_ALLOWLIST_FILEPATH='./allowlist.json' \
     graph-node
 ```
 
-* SUBGRAPH_ALLOWEDLIST_FILEPATH (allowlist.json)
+* SUBGRAPH_ALLOWLIST_FILEPATH (allowlist.json)
 
 ```
 {

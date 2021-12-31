@@ -53,17 +53,17 @@ pub static ref ENTITY_CACHE_SIZE: usize = 1000
 pub static ref DISABLE_FAIL_FAST: bool =
     std::env::var("GRAPH_DISABLE_FAIL_FAST").is_ok();
 
-pub static ref SUBGRAPH_ALLOWEDLIST_FILEPATH: String =
-    std::env::var("SUBGRAPH_ALLOWEDLIST_FILEPATH")
+pub static ref SUBGRAPH_ALLOWLIST_FILEPATH: String =
+    std::env::var("SUBGRAPH_ALLOWLIST_FILEPATH")
     .unwrap_or("".to_string())
     .parse::<String>()
-    .expect("invalid SUBGRAPH_ALLOWEDLIST_FILEPATH");
+    .expect("invalid SUBGRAPH_ALLOWLIST_FILEPATH");
 
-pub static ref allowJson: String = fs::read_to_string(SUBGRAPH_ALLOWEDLIST_FILEPATH.as_str())
+pub static ref allowJson: String = fs::read_to_string(SUBGRAPH_ALLOWLIST_FILEPATH.as_str())
     .expect("Unable to read params, make sure config file is present in the same folder");
 
-pub static ref ALLOWEDLIST: AllowedList = serde_json::from_str(allowJson.as_str())
-    .expect("Unable to parse allowedlist");
+pub static ref ALLOWLIST: AllowedList = serde_json::from_str(allowJson.as_str())
+    .expect("Unable to parse allowlist");
 }
 
 type SharedInstanceKeepAliveMap = Arc<RwLock<HashMap<DeploymentId, CancelGuard>>>;
@@ -504,8 +504,8 @@ where
 
         debug!(logger, "Starting block stream");
 
-        // todo: allowedlist
-        let addrs = ALLOWEDLIST
+        // todo: allowlist
+        let addrs = ALLOWLIST
             .allowlist
             .iter()
             .filter(|x| x.len() > 0)
@@ -515,6 +515,10 @@ where
             })
             .collect::<Vec<_>>();
 
+        info!(
+            logger,
+            "subgraph {} has allowlist {}", id_for_err.to_string(), addrs.len();
+        );
         // Process events from the stream as long as no restart is needed
         loop {
             let (mut block, cursor) = match block_stream.next().await {
