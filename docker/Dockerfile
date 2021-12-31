@@ -31,6 +31,9 @@ RUN cd /graph-node \
 
 # The graph-node runtime image with only the executable
 FROM debian:buster-slim as graph-node
+# allowlist.json filepath
+ENV SUBGRAPH_ALLOWEDLIST_FILEPATH ""
+
 ENV RUST_LOG ""
 ENV GRAPH_LOG ""
 ENV EARLY_LOG_CHUNK_SIZE ""

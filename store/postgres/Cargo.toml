@@ -4,6 +4,7 @@ version = "0.24.1"
 edition = "2018"
 
 [dependencies]
+hex = "0.4.3"
 web3 = { git = "https://github.com/RelationLab/rust-web3.git", rev="60332821cc7e51f38f24bdfe9d781c4d0c01a0d4"}
 async-trait = "0.1.50"
 blake3 = "0.3.8"

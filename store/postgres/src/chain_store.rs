@@ -3,6 +3,7 @@ use diesel::prelude::*;
 use diesel::r2d2::{ConnectionManager, PooledConnection};
 use diesel::sql_types::Text;
 use diesel::{insert_into, update};
+use graph::ensure;
 use graph::prelude::web3::types::H256;
 use graph::{
     constraint_violation,
@@ -12,7 +13,6 @@ use graph::{
     },
 };
 
-use graph::ensure;
 use std::{
     collections::HashMap,
     convert::{TryFrom, TryInto},
@@ -64,7 +64,7 @@ mod data {
         types::{FromSql, ToSql},
     };
     use diesel::{
-        sql_types::{BigInt, Bytea, Integer, Jsonb},
+        sql_types::{BigInt, Bytea, Integer, Jsonb, Nullable},
         update,
     };
     use diesel_dynamic_schema as dds;
@@ -145,7 +145,7 @@ mod data {
                 gas -> Varchar,
                 gas_price -> Varchar,
                 max_fee_per_gas -> Nullable<BigInt>,
-                max_priority_fe_per_gas -> Nullable<BigInt>,
+                max_priority_fee_per_gas -> Nullable<BigInt>,
                 hash -> Varchar,
                 input -> Text,
                 nonce -> Varchar,
@@ -478,7 +478,7 @@ mod data {
                   \"from\"                  bytea not null,
                   \"to\"                    bytea,
                   trx_type                  int8,
-                  nonce                     varchar not null,
+                  nonce                     bytea not null,
                   value                     varchar not null
                 );
                 create index tx_hash ON {nsp}.transactions using btree(hash);
@@ -598,7 +598,7 @@ mod data {
                             let value = format!("{:x}", tx.value);
                             let gas = format!("{:x}", tx.gas);
                             let gas_price = format!("{:x}", tx.gas_price);
-                            let input = format!("{:x}", tx.hash.clone());
+                            let input = format!("{}", hex::encode(tx.input.0.clone()));
                             let nonce = format!("{:x}", tx.nonce.clone());
                             let transaction_index =
                                 format!("{:x}", tx.transaction_index.unwrap().clone());
@@ -794,16 +794,24 @@ mod data {
                                 let block_number = number.clone();
                                 let hash = format!("{:x}", tx.hash.clone());
 
-                                let trx_type = tx.gas.as_u64() as i64;
+                                let trx_type = tx.trx_type.as_u64() as i64;
                                 let value = format!("{:x}", tx.value);
                                 let gas = tx.gas.as_u64() as i64;
                                 let gas_price = tx.gas_price.as_u64() as i64;
-                                let input = format!("{:x}", tx.hash.clone());
+                                let input = format!("{}", hex::encode(tx.input.0.clone()));
                                 let nonce = format!("{:x}", tx.nonce.clone());
+                                let maxfeegas = match tx.max_fee_per_gas {
+                                    Some(s) => format!("{}", s),
+                                    None => format!("null"),
+                                };
+                                let maxprioritygas = match tx.max_priority_fee_per_gas {
+                                    Some(s) => format!("{}", s),
+                                    None => format!("null"),
+                                };
                                 let transaction_index =
                                     format!("{:x}", tx.transaction_index.unwrap().clone());
                                 format!(
-                                    r#"({},{},{},{},{},{},{},{},{},{},{},{})"#,
+                                    r#"({},{},{},{},{},{},{},{},{},{},{},{},{},{})"#,
                                     format!("'{}'", &block_hash.to_string()[..]),
                                     block_number,
                                     format!("'{:x}'", tx.hash),
@@ -819,16 +827,19 @@ mod data {
                                     format!("'{}'", input),
                                     format!("'{}'", nonce),
                                     format!("'{}'", transaction_index),
+                                    maxfeegas,
+                                    maxprioritygas
                                 )
                             })
                             .collect::<Vec<_>>();
 
                         let query = format!(
-                            "insert into {}(\"block_hash\", \"block_number\", \"hash\", \"from\", \"to\",\"trx_type\",\"value\", \"gas\", \"gas_price\", \"input\", \"nonce\", \"transaction_index\") \
+                            "insert into {}(\"block_hash\", \"block_number\", \"hash\", \"from\", \"to\",\"trx_type\",\"value\", \"gas\", \"gas_price\", \"input\", \"nonce\", \"transaction_index\", \"max_fee_per_gas\", \"max_priority_fe_per_gas\") \
                             values {} on conflict(hash) do nothing",
                             transactions.qname,
                             tx_values.join(","),
                         );
+
                         sql_query(query)
                             .execute(conn)
                             .expect(&format!("Failed to insert {} data", transactions.qname));
@@ -1454,16 +1465,17 @@ mod data {
                          values ($1, $2, $3, $4, $5, $6) on conflict do nothing",
                         call_cache.qname
                     );
+
                     sql_query(query)
                         .bind::<Bytea, _>(id)
                         .bind::<Bytea, _>(contract_address)
                         .bind::<Integer, _>(block_number)
                         .bind::<Bytea, _>(return_value)
                         .bind::<Bytea, _>(method_id)
-                        .bind::<Text, _>(if call_args.len() == 0 {
-                            "".to_string()
+                        .bind::<Nullable<Text>, _>(if call_args.len() == 0 {
+                            None
                         } else {
-                            call_args.join(",")
+                            Some(call_args.join(","))
                         })
                         .execute(conn)?;
                     let query = format!(
