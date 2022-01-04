@@ -466,20 +466,20 @@ mod data {
                 create index blocks_number ON {nsp}.blocks using btree(number);
 
                 create table {nsp}.transactions (
-                  hash                      varchar not null primary key,
-                  transaction_index         varchar not null,
+                  hash                      bytea not null primary key,
+                  transaction_index         bytea not null,
                   block_hash                bytea not null,
                   block_number              int8 not null,
                   gas                       int8 not null,
                   gas_price                 int8 not null,
                   max_fee_per_gas           int8,
                   max_priority_fe_per_gas   int8,
-                  input                     varchar not null,
+                  input                     bytea not null,
                   \"from\"                  bytea not null,
                   \"to\"                    bytea,
                   trx_type                  int8,
                   nonce                     bytea not null,
-                  value                     varchar not null
+                  value                     bytea not null
                 );
                 create index tx_hash ON {nsp}.transactions using btree(hash);
 
@@ -491,10 +491,10 @@ mod data {
                   topics                text[],
                   address               bytea,
                   removed               bool,
-                  log_index             varchar,
+                  log_index             bytea,
                   log_type              int8,
                   transaction_hash      bytea,
-                  transaction_index     varchar not null,
+                  transaction_index     bytea not null,
                   cumulative_gas_used   int8,
                   effective_gas_used    int8,
                   gas_used              int8,
@@ -654,34 +654,6 @@ mod data {
 
                     let block_hash = format!("'{:x}'", block.block.hash.unwrap());
 
-                    // use public::chain_receipts as cr;
-                    // // let t = receipts.table();
-                    // // t.select();
-                    // let id = block.block.hash.unwrap().as_bytes();
-                    // insert_into(receipts.table())
-                    // .values((
-                    //     cr::id.eq(id),
-                    // ))
-                    // .on_conflict(cr::id)
-                    // .do_nothing()
-                    // .execute(conn);
-
-                    // blocks
-                    // .table()
-                    // .select(blocks.hash())
-                    // .filter(blocks.number().eq(number as i64))
-                    // .get_results::<Vec<u8>>(conn)?
-                    // .into_iter()
-                    // .map(|hash| h256_from_bytes(hash.as_slice()))
-                    // .collect::<Result<Vec<H256>, _>>()
-                    // .map_err(Error::from),
-
-                    // insert_into(b::table)
-                    // .values(values.clone())
-                    // .on_conflict(b::hash)
-                    // .do_nothing()
-                    // .execute(conn)
-
                     for receipt in block.transaction_receipts.iter() {
                         //receipt sql insert
                         let cumulative_gas_used = format!("{}", receipt.cumulative_gas_used);
@@ -731,7 +703,7 @@ mod data {
                                     None => format!("null"),
                                 };
                                 let log_index = match log.log_index {
-                                    Some(s) => format!("{}", s),
+                                    Some(s) => format!("'{:x}'", s),
                                     None => format!("null"),
                                 };
                                 let transaction_hash = match log.transaction_hash {
@@ -790,7 +762,7 @@ mod data {
                             .transactions
                             .iter()
                             .map(|tx| {
-                                let block_hash = format!("{:x}", block.block.hash.unwrap());
+                                let block_hash = format!("'{:x}'", block.block.hash.unwrap());
                                 let block_number = number.clone();
                                 let hash = format!("{:x}", tx.hash.clone());
 
@@ -798,7 +770,8 @@ mod data {
                                 let value = format!("{:x}", tx.value);
                                 let gas = tx.gas.as_u64() as i64;
                                 let gas_price = tx.gas_price.as_u64() as i64;
-                                let input = format!("{}", hex::encode(tx.input.0.clone()));
+                                let _input = hex::encode(&tx.input.0);
+                                let input = format!("'{}'", _input);
                                 let nonce = format!("{:x}", tx.nonce.clone());
                                 let maxfeegas = match tx.max_fee_per_gas {
                                     Some(s) => format!("{}", s),
@@ -809,10 +782,10 @@ mod data {
                                     None => format!("null"),
                                 };
                                 let transaction_index =
-                                    format!("{:x}", tx.transaction_index.unwrap().clone());
+                                    format!("'{:x}'", tx.transaction_index.unwrap().clone());
                                 format!(
                                     r#"({},{},{},{},{},{},{},{},{},{},{},{},{},{})"#,
-                                    format!("'{}'", &block_hash.to_string()[..]),
+                                    block_hash,
                                     block_number,
                                     format!("'{:x}'", tx.hash),
                                     format!("'{:x}'", tx.from),
@@ -824,9 +797,9 @@ mod data {
                                     format!("'{}'", value),
                                     gas,
                                     gas_price,
-                                    format!("'{}'", input),
+                                    input,
                                     format!("'{}'", nonce),
-                                    format!("'{}'", transaction_index),
+                                    transaction_index,
                                     maxfeegas,
                                     maxprioritygas
                                 )
