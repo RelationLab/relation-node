@@ -22,7 +22,7 @@ use graph::{
     firehose::bstream,
     log::factory::{ComponentLoggerConfig, ElasticComponentLoggerConfig},
     prelude::{
-        async_trait, error, info, lazy_static, o, web3::types::H256, BlockNumber, ChainStore,
+        async_trait, error, lazy_static, o, web3::types::H256, BlockNumber, ChainStore,
         EthereumBlockWithCalls, Future01CompatExt, Logger, LoggerFactory, MetricsRegistry, NodeId,
         SubgraphStore,
     },
@@ -636,7 +636,7 @@ impl IngestorAdapterTrait<Chain> for IngestorAdapter {
     fn early_block_task_count(&self) -> BlockNumber {
         self.earlyblock_task_cnt
     }
-    
+
     fn ancestor_count(&self) -> BlockNumber {
         self.ancestor_count
     }
@@ -691,7 +691,7 @@ impl IngestorAdapterTrait<Chain> for IngestorAdapter {
             Err(e) => return Err(e),
             Ok(b) => b.unwrap(),
         };
-        let parent_number = block.number.unwrap().as_u64() as i64 - 1;
+        // let parent_number = block.number.unwrap().as_u64() as i64 - 1;
         let parent_hash = block.parent_hash;
 
         // .ok_or_else(|| IngestorError::BlockUnavailable(block_hash))?;

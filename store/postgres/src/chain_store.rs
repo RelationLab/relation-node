@@ -301,9 +301,9 @@ mod data {
             }
         }
 
-        fn table(&self) -> DynTable {
-            self.table.clone()
-        }
+        // fn table(&self) -> DynTable {
+        //     self.table.clone()
+        // }
     }
 
     #[derive(Clone, Debug)]
@@ -565,7 +565,7 @@ mod data {
         pub(super) fn upsert_block(
             &self,
             conn: &PgConnection,
-            chain: &str,
+            _chain: &str,
             block: EthereumBlock,
         ) -> Result<(), StoreError> {
             let number = block.block.number.unwrap().as_u64() as i64;
@@ -764,7 +764,7 @@ mod data {
                             .map(|tx| {
                                 let block_hash = format!("'{:x}'", block.block.hash.unwrap());
                                 let block_number = number.clone();
-                                let hash = format!("{:x}", tx.hash.clone());
+                                // let hash = format!("{:x}", tx.hash.clone());
 
                                 let trx_type = tx.trx_type.as_u64() as i64;
                                 let value = format!("{:x}", tx.value);
@@ -1163,45 +1163,45 @@ mod data {
             }
         }
 
-        pub(super) fn chain_early_head_candidate(
-            &self,
-            conn: &PgConnection,
-            chain: &str,
-        ) -> Result<Option<BlockPtr>, Error> {
-            use public::ethereum_networks as n;
+        // pub(super) fn chain_early_head_candidate(
+        //     &self,
+        //     conn: &PgConnection,
+        //     chain: &str,
+        // ) -> Result<Option<BlockPtr>, Error> {
+        //     use public::ethereum_networks as n;
 
-            let (head_num, head_hash) = n::table
-                .filter(n::name.eq(chain))
-                .select((n::early_head_block_number, n::early_head_block_hash))
-                .first::<(Option<i64>, Option<String>)>(conn)
-                .optional()?
-                .map(|(num, hash)| (num.unwrap_or(i64::MAX), hash.unwrap_or("".to_string())))
-                .unwrap();
+        //     let (head_num, head_hash) = n::table
+        //         .filter(n::name.eq(chain))
+        //         .select((n::early_head_block_number, n::early_head_block_hash))
+        //         .first::<(Option<i64>, Option<String>)>(conn)
+        //         .optional()?
+        //         .map(|(num, hash)| (num.unwrap_or(i64::MAX), hash.unwrap_or("".to_string())))
+        //         .unwrap();
 
-            match self {
-                Storage::Shared => {
-                    use public::ethereum_blocks as b;
-                    b::table
-                        .filter(b::network_name.eq(chain))
-                        .filter(b::number.lt(head_num))
-                        .order_by((b::number.desc(), b::hash))
-                        .select((b::hash, b::number))
-                        .first::<(String, i64)>(conn)
-                        .optional()?
-                        .map(|(hash, number)| BlockPtr::try_from((hash.as_str(), number)))
-                        .transpose()
-                }
-                Storage::Private(Schema { blocks, .. }) => blocks
-                    .table()
-                    .filter(blocks.number().lt(head_num))
-                    .order_by((blocks.number().desc(), blocks.hash()))
-                    .select((blocks.hash(), blocks.number()))
-                    .first::<(Vec<u8>, i64)>(conn)
-                    .optional()?
-                    .map(|(hash, number)| BlockPtr::try_from((hash.as_slice(), number)))
-                    .transpose(),
-            }
-        }
+        //     match self {
+        //         Storage::Shared => {
+        //             use public::ethereum_blocks as b;
+        //             b::table
+        //                 .filter(b::network_name.eq(chain))
+        //                 .filter(b::number.lt(head_num))
+        //                 .order_by((b::number.desc(), b::hash))
+        //                 .select((b::hash, b::number))
+        //                 .first::<(String, i64)>(conn)
+        //                 .optional()?
+        //                 .map(|(hash, number)| BlockPtr::try_from((hash.as_str(), number)))
+        //                 .transpose()
+        //         }
+        //         Storage::Private(Schema { blocks, .. }) => blocks
+        //             .table()
+        //             .filter(blocks.number().lt(head_num))
+        //             .order_by((blocks.number().desc(), blocks.hash()))
+        //             .select((blocks.hash(), blocks.number()))
+        //             .first::<(Vec<u8>, i64)>(conn)
+        //             .optional()?
+        //             .map(|(hash, number)| BlockPtr::try_from((hash.as_slice(), number)))
+        //             .transpose(),
+        //     }
+        // }
 
         pub(super) fn ancestor_block(
             &self,

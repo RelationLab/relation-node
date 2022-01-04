@@ -35,7 +35,7 @@ use web3::types::H160;
 use std::fs;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct AllowedList {
+pub struct AllowList {
     pub allowlist: Vec<String>,
 }
 
@@ -59,10 +59,10 @@ pub static ref SUBGRAPH_ALLOWLIST_FILEPATH: String =
     .parse::<String>()
     .expect("invalid SUBGRAPH_ALLOWLIST_FILEPATH");
 
-pub static ref allowJson: String = fs::read_to_string(SUBGRAPH_ALLOWLIST_FILEPATH.as_str())
+pub static ref _ALLOW_JSON: String = fs::read_to_string(SUBGRAPH_ALLOWLIST_FILEPATH.as_str())
     .expect("Unable to read params, make sure config file is present in the same folder");
 
-pub static ref ALLOWLIST: AllowedList = serde_json::from_str(allowJson.as_str())
+pub static ref ALLOWLIST: AllowList = serde_json::from_str(_ALLOW_JSON.as_str())
     .expect("Unable to parse allowlist");
 }
 
@@ -350,7 +350,7 @@ where
             .clone();
 
         // Obtain filters from the manifest
-        let mut filter = C::TriggerFilter::from_data_sources(manifest.data_sources.iter());
+        let filter = C::TriggerFilter::from_data_sources(manifest.data_sources.iter());
         let start_blocks = manifest.start_blocks();
 
         let templates = Arc::new(manifest.templates.clone());

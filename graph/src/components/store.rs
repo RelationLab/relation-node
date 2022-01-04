@@ -1168,7 +1168,7 @@ impl SubgraphStore for MockStore {
 // The store trait must be implemented manually because mockall does not support async_trait, nor borrowing from arguments.
 #[async_trait]
 impl WritableStore for MockStore {
-    async fn get_filter_addrs(&self, id: String) -> Result<Vec<H160>, Error> {
+    async fn get_filter_addrs(&self, _id: String) -> Result<Vec<H160>, Error> {
         unimplemented!()
     }
     fn block_ptr(&self) -> Result<Option<BlockPtr>, Error> {
