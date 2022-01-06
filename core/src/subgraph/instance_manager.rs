@@ -325,7 +325,7 @@ where
             )
             .await
             .context("Failed to load dynamic data sources")?;
-
+            tokio::join!();
             info!(logger, "Successfully resolved subgraph files using IPFS");
 
             // Add dynamic data sources to the subgraph
@@ -505,6 +505,13 @@ where
         debug!(logger, "Starting block stream");
 
         // todo: allowlist
+
+        // let file_bytes = self
+        //     .link_resolver
+        //     .cat(&logger, &loc.hash.to_ipfs_link())
+        //     .await
+        //     .map_err(SubgraphAssignmentProviderError::ResolveError)?;
+
         let addrs = ALLOWLIST
             .allowlist
             .iter()

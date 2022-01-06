@@ -1,5 +1,9 @@
 use ethabi::ParamType;
 use ethabi::Token;
+use tiny_keccak::Keccak;
+
+use ethabi::param_type::Writer;
+
 use futures::future;
 use futures::prelude::*;
 use graph::components::transaction_receipt::LightTransactionReceipt;
@@ -48,6 +52,25 @@ use crate::{
     trigger::{EthereumBlockTriggerType, EthereumTrigger},
     TriggerFilter,
 };
+
+pub fn short_signature(name: &str, params: &[ParamType]) -> [u8; 4] {
+    let mut result = [0u8; 4];
+    fill_signature(name, params, &mut result);
+    result
+}
+fn fill_signature(name: &str, params: &[ParamType], result: &mut [u8]) {
+    let types = params
+        .iter()
+        .map(Writer::write)
+        .collect::<Vec<String>>()
+        .join(",");
+
+    let data: Vec<u8> = From::from(format!("{}({})", name, types).as_str());
+
+    let mut sponge = Keccak::new_keccak256();
+    sponge.update(&data);
+    sponge.finalize(result);
+}
 
 #[derive(Clone)]
 pub struct EthereumAdapter {
@@ -1293,6 +1316,15 @@ impl EthereumAdapterTrait for EthereumAdapter {
             Ok(data) => data,
             Err(e) => return Box::new(future::err(EthereumContractCallError::EncodingError(e))),
         };
+        // encode the call method
+
+        let params = call
+            .function
+            .inputs
+            .iter()
+            .map(|p| p.kind.clone())
+            .collect::<Vec<ParamType>>();
+        let method_id = short_signature(&call.function.name, &params).to_vec();
 
         trace!(logger, "eth_call";
             "address" => hex::encode(&call.address),
@@ -1330,12 +1362,14 @@ impl EthereumAdapterTrait for EthereumAdapter {
                                     .iter()
                                     .map(|x| x.to_string())
                                     .collect::<Vec<String>>();
+
                                 cache
                                     .set_call(
                                         call.address,
                                         &call_data,
                                         call.block_ptr,
                                         &for_cache,
+                                        &method_id,
                                         args,
                                     )
                                     .map_err(|e| {

@@ -1444,7 +1444,7 @@ mod data {
                         .bind::<Bytea, _>(contract_address)
                         .bind::<Integer, _>(block_number)
                         .bind::<Bytea, _>(return_value)
-                        .bind::<Bytea, _>(method_id)
+                        .bind::<Bytea, _>(&method_id)
                         .bind::<Nullable<Text>, _>(if call_args.len() == 0 {
                             None
                         } else {
@@ -2010,6 +2010,7 @@ impl EthereumCallCache for ChainStore {
         encoded_call: &[u8],
         block: BlockPtr,
         return_value: &[u8],
+        method_id: &[u8],
         call_args: Vec<String>,
     ) -> Result<(), Error> {
         let id = contract_call_id(&contract_address, encoded_call, &block);
@@ -2021,7 +2022,7 @@ impl EthereumCallCache for ChainStore {
                 contract_address.as_ref(),
                 block.number as i32,
                 return_value,
-                encoded_call,
+                method_id,
                 call_args,
             )
         })
