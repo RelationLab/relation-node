@@ -188,8 +188,8 @@ where
             .await
             .into_iter()
             .map(|x| {
-                x.expect("block_on future")
-                    .expect("early_ingest_block")
+                x.expect("block_on future:")
+                    .expect("early_ingest_block:")
                     .unwrap()
             })
             .collect::<Vec<_>>();

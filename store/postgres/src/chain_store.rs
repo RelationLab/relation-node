@@ -78,10 +78,48 @@ mod data {
     use std::sync::Arc;
     use std::{convert::TryFrom, io::Write};
 
+    use core::any::type_name;
     use graph::prelude::{
-        serde_json, web3::types::H256, BlockNumber, BlockPtr, Error, EthereumBlock,
-        LightEthereumBlock,
+        serde_json, web3::types::Bytes, web3::types::H160, web3::types::H256, web3::types::U256,
+        web3::types::U64, BlockNumber, BlockPtr, Error, EthereumBlock, LightEthereumBlock,
     };
+    use std::any::Any;
+    // use std::any::TypeId;
+
+    struct BindSqlType<T> {
+        _val: T,
+    }
+    impl<T: Any> BindSqlType<T> {
+        pub fn bytea(input: T) -> String {
+            let any = &input as &dyn Any;
+
+            if let Some(x) = any.downcast_ref::<H256>() {
+                return format!("decode('{:x}', 'hex')", x);
+            } else if let Some(x) = any.downcast_ref::<H160>() {
+                return format!("decode('{:x}', 'hex')", x);
+            } else if let Some(x) = any.downcast_ref::<Bytes>() {
+                let mut s = hex::encode(&x.0);
+                if s.len() % 2 == 1 {
+                    s = format!("0{}", s);
+                }
+                return format!("decode('{}', 'hex')", s);
+            } else if let Some(x) = any.downcast_ref::<U64>() {
+                let mut s = format!("{:x}", x);
+                if s.len() % 2 == 1 {
+                    s = format!("0{}", s);
+                }
+                return format!("decode('{}', 'hex')", s);
+            } else if let Some(x) = any.downcast_ref::<U256>() {
+                let mut s = format!("{:x}", x);
+                if s.len() % 2 == 1 {
+                    s = format!("0{}", s);
+                }
+                return format!("decode('{}', 'hex')", s);
+            } else {
+                panic!("unsuppot bindBytea type: {}", type_name::<T>());
+            }
+        }
+    }
 
     use crate::transaction_receipt::RawTransactionReceipt;
 
@@ -652,24 +690,24 @@ mod data {
                     //
                     // receipts
 
-                    let block_hash = format!("'{:x}'", block.block.hash.unwrap());
-
+                    let block_hash = BindSqlType::bytea(block.block.hash.unwrap());
                     for receipt in block.transaction_receipts.iter() {
                         //receipt sql insert
                         let cumulative_gas_used = format!("{}", receipt.cumulative_gas_used);
-
                         let effective_gas_used = format!("{}", receipt.effective_gas_used);
 
                         let gas_used = match receipt.gas_used {
                             Some(s) => format!("{}", s),
                             None => format!("null"),
                         };
+
                         let from = match receipt.from {
-                            Some(s) => format!("'{:x}'", s),
+                            Some(s) => BindSqlType::bytea(s),
                             None => format!("null"),
                         };
+
                         let to = match receipt.to {
-                            Some(s) => format!("'{:x}'", s),
+                            Some(s) => BindSqlType::bytea(s),
                             None => format!("null"),
                         };
 
@@ -677,12 +715,7 @@ mod data {
                             .logs
                             .iter()
                             .map(|log| {
-                                let _data = log
-                                    .data
-                                    .0
-                                    .iter()
-                                    .fold(String::new(), |s, x| s + &x.to_string());
-                                let data = format!("'{}'", _data);
+                                let data = BindSqlType::bytea(log.data.clone());
 
                                 let _topics = log
                                     .topics
@@ -692,7 +725,7 @@ mod data {
                                     .collect::<Vec<String>>();
                                 let topics = format!("'{{{}}}'", _topics.join(","));
 
-                                let address = format!("'{:x}'", log.address);
+                                let address = BindSqlType::bytea(log.address);
                                 let log_type = match &log.log_type {
                                     Some(s) => format!("'{}'", s),
                                     None => format!("null"),
@@ -703,16 +736,16 @@ mod data {
                                     None => format!("null"),
                                 };
                                 let log_index = match log.log_index {
-                                    Some(s) => format!("'{:x}'", s),
+                                    Some(s) => BindSqlType::bytea(s),
                                     None => format!("null"),
                                 };
                                 let transaction_hash = match log.transaction_hash {
-                                    Some(s) => format!("'{:x}'", s),
+                                    Some(s) => BindSqlType::bytea(s),
                                     None => format!("null"),
                                 };
 
                                 let transaction_index = match log.transaction_index {
-                                    Some(s) => format!("'{:x}'", s),
+                                    Some(s) => BindSqlType::bytea(s),
                                     None => format!("null"),
                                 };
 
@@ -762,17 +795,15 @@ mod data {
                             .transactions
                             .iter()
                             .map(|tx| {
-                                let block_hash = format!("'{:x}'", block.block.hash.unwrap());
+                                let block_hash = BindSqlType::bytea(block.block.hash.unwrap());
                                 let block_number = number.clone();
-                                // let hash = format!("{:x}", tx.hash.clone());
 
                                 let trx_type = tx.trx_type.as_u64() as i64;
-                                let value = format!("{:x}", tx.value);
+                                let value = BindSqlType::bytea(tx.value);
                                 let gas = tx.gas.as_u64() as i64;
                                 let gas_price = tx.gas_price.as_u64() as i64;
-                                let _input = hex::encode(&tx.input.0);
-                                let input = format!("'{}'", _input);
-                                let nonce = format!("{:x}", tx.nonce.clone());
+                                let input = BindSqlType::bytea(tx.input.clone());
+                                let nonce = BindSqlType::bytea(tx.nonce.clone());
                                 let maxfeegas = match tx.max_fee_per_gas {
                                     Some(s) => format!("{}", s),
                                     None => format!("null"),
@@ -781,24 +812,30 @@ mod data {
                                     Some(s) => format!("{}", s),
                                     None => format!("null"),
                                 };
+
                                 let transaction_index =
-                                    format!("'{:x}'", tx.transaction_index.unwrap().clone());
+                                    BindSqlType::bytea(tx.transaction_index.unwrap());
+
+                                let hash = BindSqlType::bytea(tx.hash);
+                                let from = BindSqlType::bytea(tx.from);
+                                let to = match tx.to {
+                                    Some(x) => BindSqlType::bytea(x),
+                                    None => format!("null"),
+                                };
+
                                 format!(
                                     r#"({},{},{},{},{},{},{},{},{},{},{},{},{},{})"#,
                                     block_hash,
                                     block_number,
-                                    format!("'{:x}'", tx.hash),
-                                    format!("'{:x}'", tx.from),
-                                    match tx.to {
-                                        Some(s) => format!("'{:x}'", s),
-                                        None => format!("''"),
-                                    },
+                                    hash,
+                                    from,
+                                    to,
                                     trx_type,
-                                    format!("'{}'", value),
+                                    value,
                                     gas,
                                     gas_price,
                                     input,
-                                    format!("'{}'", nonce),
+                                    nonce,
                                     transaction_index,
                                     maxfeegas,
                                     maxprioritygas
