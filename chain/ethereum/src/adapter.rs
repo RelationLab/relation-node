@@ -9,7 +9,7 @@ use std::fmt;
 use std::marker::Unpin;
 use thiserror::Error;
 use tiny_keccak::keccak256;
-use web3::types::{Address, Block, Log, H256};
+use web3::types::{Address, Block, BlockNumber as Web3BlockNumber, Log, H256, U256};
 
 use graph::{
     blockchain as bc,
@@ -650,6 +650,13 @@ pub trait EthereumAdapter: Send + Sync + 'static {
         call: EthereumContractCall,
         cache: Arc<dyn EthereumCallCache>,
     ) -> Box<dyn Future<Item = Vec<Token>, Error = EthereumContractCallError> + Send>;
+
+    fn balance(
+        &self,
+        logger: Logger,
+        addr: Address,
+        number: Option<Web3BlockNumber>,
+    ) -> Box<dyn Future<Item = U256, Error = Error> + Send>;
 }
 
 #[cfg(test)]

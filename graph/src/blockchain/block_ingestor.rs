@@ -1,5 +1,5 @@
 use crate::{
-    blockchain::{Blockchain, IngestorAdapter, IngestorError},
+    blockchain::{BlockPtr, Blockchain, IngestorAdapter, IngestorError},
     prelude::{info, lazy_static, tokio, trace, warn, Error, LogCode, Logger},
     task_spawn::{block_on, spawn_blocking_allow_panic},
 };
@@ -167,15 +167,9 @@ where
 
         info!(
             self.logger,
-            "Early Syncing {} blocks from Ethereum.",
-            blocks_needed;
-            "current_block_head" => early_head_block_ptr.number
-        );
-
-        info!(
-            self.logger,
             "Early Syncing [{} to {})...", start_head_block_num, early_head_block_num
         );
+
         let futures = (start_head_block_num..early_head_block_num)
             .rev()
             .into_iter()
@@ -193,8 +187,6 @@ where
                     .unwrap()
             })
             .collect::<Vec<_>>();
-
-        info!(self.logger, "Early Syncing Result Check...",);
 
         let (earliest_block_num, earliest_block_hash, _) = stored_blocks
             .into_iter()
@@ -293,5 +285,147 @@ where
             missing_block_hash = self.adapter.ingest_block(&hash).await?;
         }
         Ok(())
+    }
+
+    // for balance
+    pub async fn into_polling_balance(self) {
+        loop {
+            match self.do_poll_balance().await {
+                // Some polls will fail due to transient issues
+                Err(err @ IngestorError::BlockUnavailable(_)) => {
+                    info!(
+                        self.logger,
+                        "Trying again after block polling failed: {}", err
+                    );
+                }
+                Err(err @ IngestorError::ReceiptUnavailable(_, _)) => {
+                    info!(
+                        self.logger,
+                        "Trying again after block polling failed: {}", err
+                    );
+                }
+                Err(IngestorError::Unknown(inner_err)) => {
+                    warn!(
+                        self.logger,
+                        "Trying again after block polling failed: {}", inner_err
+                    );
+                }
+                Err(IngestorError::EarlyBlockUninitialized()) => {
+                    warn!(self.logger, "Trying again after early block initialized");
+                }
+                Err(IngestorError::EarlyBlockFinished(_)) => {
+                    warn!(self.logger, "Syncing early block finished");
+                    break;
+                }
+                _ => continue,
+            }
+
+            // todo:
+            // if *CLEANUP_BLOCKS {
+            //     self.cleanup_cached_blocks()
+            // }
+
+            tokio::time::sleep(self.polling_interval).await;
+        }
+    }
+
+    fn balance_block_ptr(&self) -> Result<(Option<BlockPtr>, Option<BlockPtr>), IngestorError> {
+        trace!(self.logger, "BlockIngestor::balance_block_ptr");
+
+        let store = self.adapter.balance_chain_store();
+
+        let head_block_ptr_opt = self.adapter.chain_head_ptr()?;
+        let early_head_block_ptr_opt = self.adapter.chain_early_head_ptr()?;
+        if head_block_ptr_opt.is_none() || early_head_block_ptr_opt.is_none() {
+            return Err(IngestorError::EarlyBlockUninitialized());
+        }
+        let head_block_ptr = head_block_ptr_opt.unwrap();
+        let early_head_block_ptr = early_head_block_ptr_opt.unwrap();
+
+        // todo: option
+        let balance_head_ptr_opt = store.chain_balance_head_ptr()?;
+        let balance_early_head_ptr_opt = store.chain_balance_early_head_ptr()?;
+
+        let balance_head_ptr = balance_head_ptr_opt.unwrap_or(BlockPtr {
+            number: i32::MAX,
+            hash: head_block_ptr.clone().hash,
+        });
+        let balance_early_head_ptr = balance_early_head_ptr_opt.unwrap_or(BlockPtr {
+            number: 0,
+            hash: head_block_ptr.clone().hash,
+        });
+
+        if head_block_ptr.number > balance_head_ptr.number
+            && early_head_block_ptr.number < balance_early_head_ptr.number
+        {
+            return Ok((Some(balance_head_ptr), Some(balance_early_head_ptr)));
+        } else if head_block_ptr.number > balance_head_ptr.number {
+            return Ok((Some(balance_head_ptr), None));
+        } else if early_head_block_ptr.number < balance_early_head_ptr.number {
+            return Ok((None, Some(balance_early_head_ptr)));
+        }
+        return Ok((None, None));
+    }
+
+    async fn do_poll_balance(&self) -> Result<Option<i32>, IngestorError> {
+        trace!(self.logger, "BlockIngestor::do_poll_balance");
+
+        let store = self.adapter.balance_chain_store();
+
+        let (balance_block_ptr_opt, balance_early_block_ptr_opt) = self.balance_block_ptr()?;
+
+        // todo: revert
+        // backward
+        if balance_early_block_ptr_opt.is_some() {
+            let balance_early_block_ptr = balance_early_block_ptr_opt.clone().unwrap();
+            let backward_adapter = Arc::clone(&self.adapter);
+            let backward_task = spawn_blocking_allow_panic(move || -> Result<i32, Error> {
+                let rst = block_on(backward_adapter.balance_ingest(balance_early_block_ptr))?;
+                Ok(rst)
+            });
+            let rst = backward_task.await;
+            match rst {
+                Err(e) => return Err(IngestorError::Unknown(Error::from(e))),
+                Ok(cnt) => {
+                    let cnt = cnt?;
+
+                    let next_backward_block_ptr = BlockPtr {
+                        hash: balance_early_block_ptr_opt.as_ref().unwrap().hash.clone(),
+                        number: balance_early_block_ptr_opt.unwrap().block_number() - 1,
+                    };
+                    store
+                        .chain_update_balance_early_head(&next_backward_block_ptr)
+                        .await
+                        .map_err(|e| IngestorError::Unknown(e))?;
+                }
+            }
+        }
+        // forward
+        if balance_block_ptr_opt.is_some() {
+            let balance_block_ptr = balance_block_ptr_opt.clone().unwrap();
+            let forward_adapter = Arc::clone(&self.adapter);
+            let forward_task = spawn_blocking_allow_panic(move || -> Result<i32, Error> {
+                let rst = block_on(forward_adapter.balance_ingest(balance_block_ptr))?;
+                Ok(rst)
+            });
+            let rst = forward_task.await;
+            match rst {
+                Err(e) => return Err(IngestorError::Unknown(Error::from(e))),
+                Ok(cnt) => {
+                    let cnt = cnt?;
+
+                    let next_forward_block_ptr = BlockPtr {
+                        hash: balance_block_ptr_opt.as_ref().unwrap().hash.clone(),
+                        number: balance_block_ptr_opt.unwrap().block_number() + 1,
+                    };
+                    store
+                        .chain_update_balance_head(&next_forward_block_ptr)
+                        .await
+                        .map_err(|e| IngestorError::Unknown(e))?;
+                }
+            }
+        }
+
+        return Ok(Some(1));
     }
 }

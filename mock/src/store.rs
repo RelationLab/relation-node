@@ -1,8 +1,9 @@
 use mockall::predicate::*;
 use mockall::*;
 
+use graph::prelude::BigDecimal;
 use graph::{components::store::DeploymentLocator, prelude::*};
-use web3::types::H256;
+use web3::types::{Address, H256, U256};
 
 mock! {
     pub Store {
@@ -20,7 +21,12 @@ mock! {
         fn genesis_block_ptr(&self) -> Result<BlockPtr, Error>;
 
         async fn upsert_block(&self, block: EthereumBlock) -> Result<(), Error>;
-
+        async fn upsert_balance(
+            &self,
+            address: &Address,
+            amount: U256,
+            block_ptr: &BlockPtr,
+        ) -> Result<(), Error>;
         fn upsert_light_blocks(&self, blocks: Vec<LightEthereumBlock>) -> Result<(), Error>;
 
         async fn attempt_chain_head_update(self: Arc<Self>, ancestor_count: BlockNumber) -> Result<Option<H256>, Error>;
@@ -53,6 +59,19 @@ mock! {
 
         async fn transaction_receipts_in_block(&self, block_hash: &H256) -> Result<Vec<transaction_receipt::LightTransactionReceipt>, StoreError>;
 
+        fn chain_balance_head_ptr(&self) -> Result<Option<BlockPtr>, Error>;
+        fn chain_balance_early_head_ptr(&self) -> Result<Option<BlockPtr>, Error>;
+        async fn chain_update_balance_head(
+            &self,
+            block_ptr: &BlockPtr,
+        ) -> Result<u64, Error>;
+        async fn chain_update_balance_early_head(
+            &self,
+            early_block_ptr: &BlockPtr,
+        ) -> Result<u64, Error>;
+
+
+        async fn balance_address_list(&self, block_ptr: &BlockPtr) -> Result<Vec<Address>, Error>;
     }
 }
 

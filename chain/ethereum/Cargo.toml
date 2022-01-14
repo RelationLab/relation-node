@@ -4,6 +4,8 @@ version = "0.24.1"
 edition = "2018"
 
 [dependencies]
+bigdecimal = { version = "0.1.0", features = ["serde"] }
+futures03 = { version = "0.3.1", package = "futures", features = ["compat"] }
 chrono = "0.4"
 futures = "0.1.21"
 http = "0.1.21" # must be compatible with the version rust-web3 uses

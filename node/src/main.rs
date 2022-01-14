@@ -63,6 +63,12 @@ lazy_static! {
         .map(|s| BlockNumber::from_str(&s)
              .unwrap_or_else(|_| panic!("failed to parse env var ETHEREUM_EARLYBLOCK_TASK_CNT")))
         .unwrap_or(4);
+
+    static ref BALANCE_TASK_CNT: BlockNumber = env::var("BALANCE_TASK_CNT")
+        .ok()
+        .map(|s| BlockNumber::from_str(&s)
+                .unwrap_or_else(|_| panic!("failed to parse env var BALANCE_TASK_CNT")))
+        .unwrap_or(4);
 }
 
 /// How long we will hold up node startup to get the net version and genesis
@@ -763,6 +769,7 @@ fn networks_as_chains(
                 *REORG_THRESHOLD,
                 is_ingestible,
                 *EARLYBLOCK_TASK_CNT,
+                *BALANCE_TASK_CNT,
             );
             (network_name.clone(), Arc::new(chain))
         })
@@ -828,6 +835,13 @@ fn start_block_ingestor(
             graph::spawn(block_ingestor.into_polling_stream());
             // Run the Ethereum early block ingestor in the background
             graph::spawn(early_block_ingestor.early_into_polling_stream());
+            // Run the Ethereum balance ingestor in the background
+            let balance_ingestor = BlockIngestor::<ethereum::Chain>::new(
+                chain.ingestor_adapter(),
+                block_polling_interval,
+            )
+            .expect("failed to create Ethereum block ingestor");
+            graph::spawn(balance_ingestor.into_polling_balance());
         });
 }
 

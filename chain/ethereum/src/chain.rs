@@ -7,6 +7,7 @@ use graph::prelude::{
 };
 
 use graph::{
+    block_on,
     blockchain::{
         block_stream::{
             BlockStreamEvent, BlockStreamMetrics, BlockWithTriggers, FirehoseError,
@@ -22,11 +23,13 @@ use graph::{
     firehose::bstream,
     log::factory::{ComponentLoggerConfig, ElasticComponentLoggerConfig},
     prelude::{
-        async_trait, error, lazy_static, o, web3::types::H256, BlockNumber, ChainStore,
-        EthereumBlockWithCalls, Future01CompatExt, Logger, LoggerFactory, MetricsRegistry, NodeId,
-        SubgraphStore,
+        async_trait, info, error, lazy_static, o, web3::types::H256, web3::types::U256, BigDecimal,
+        BigInt, BlockNumber, ChainStore, EthereumBlockWithCalls, Future01CompatExt, Logger,
+        LoggerFactory, MetricsRegistry, NodeId, SubgraphStore,
     },
+    spawn_blocking_allow_panic,
 };
+
 use prost::Message;
 use std::collections::HashSet;
 use std::iter::FromIterator;
@@ -47,6 +50,8 @@ use crate::{
 };
 use crate::{network::EthereumNetworkAdapters, EthereumAdapter};
 use graph::blockchain::block_stream::{BlockStream, FirehoseCursor};
+
+use web3::types::BlockNumber as Web3BlockNumber;
 
 lazy_static! {
     /// Maximum number of blocks to request in each chunk.
@@ -80,6 +85,7 @@ pub struct Chain {
     reorg_threshold: BlockNumber,
     pub is_ingestible: bool,
     earlyblock_task_cnt: BlockNumber,
+    balance_task_cnt: BlockNumber,
 }
 
 impl std::fmt::Debug for Chain {
@@ -104,6 +110,7 @@ impl Chain {
         reorg_threshold: BlockNumber,
         is_ingestible: bool,
         earlyblock_task_cnt: BlockNumber,
+        balance_task_cnt: BlockNumber,
     ) -> Self {
         Chain {
             logger_factory,
@@ -120,6 +127,7 @@ impl Chain {
             reorg_threshold,
             is_ingestible,
             earlyblock_task_cnt,
+            balance_task_cnt,
         }
     }
 
@@ -332,6 +340,7 @@ impl Blockchain for Chain {
             logger,
             ancestor_count: self.ancestor_count,
             earlyblock_task_cnt: self.earlyblock_task_cnt,
+            balance_task_cnt: self.balance_task_cnt,
             chain_store: self.chain_store.clone(),
         };
         Arc::new(adapter)
@@ -623,6 +632,7 @@ pub struct IngestorAdapter {
     logger: Logger,
     ancestor_count: i32,
     earlyblock_task_cnt: i32,
+    balance_task_cnt: i32,
     eth_adapter: Arc<EthereumAdapter>,
     chain_store: Arc<dyn ChainStore>,
 }
@@ -747,5 +757,71 @@ impl IngestorAdapterTrait<Chain> for IngestorAdapter {
 
     fn cleanup_cached_blocks(&self) -> Result<Option<(i32, usize)>, Error> {
         self.chain_store.cleanup_cached_blocks(self.ancestor_count)
+    }
+
+    /// for balance ingest
+
+    fn balance_chain_store(&self) -> Arc<dyn ChainStore> {
+        return self.chain_store.clone();
+    }
+
+    async fn balance_ingest(&self, block_ptr: BlockPtr) -> Result<i32, Error> {
+        // self.balance_task_cnt;
+        // get transactions by blocknumber
+        let adress_list = self.chain_store.balance_address_list(&block_ptr).await?;
+
+        let block_number = block_ptr.number;
+        let futures = adress_list
+            .into_iter()
+            .map(|address| {
+                let adapter = Arc::clone(&self.eth_adapter);
+                let logger = self.logger.clone();
+                spawn_blocking_allow_panic(move || {
+                    let amount = block_on(
+                        adapter
+                            .balance(
+                                logger,
+                                address,
+                                Some(Web3BlockNumber::Number(block_number.into())),
+                            )
+                            .compat(),
+                    )
+                    .expect("balance:");
+                    (address, amount)
+                })
+                //     .expect("balance:")
+                //     .as_u64() as i64;
+                // self.chain_store.upsert_balance(address, amount, block_ptr);
+                // 0
+            })
+            .collect::<Vec<_>>();
+
+        let stored_balances = futures03::future::join_all(futures)
+            .await
+            .into_iter()
+            .map(|rst| {
+                let ret = rst.expect("future:");
+                ret
+            })
+            .collect::<Vec<_>>();
+        let mut suc = 0;
+        for rst in stored_balances {
+            self.chain_store
+                .upsert_balance(&rst.0, rst.1, &block_ptr)
+                .await
+                .map_err(|e| error!(self.logger, "upsert_balance error"; "error" => e.to_string()));
+
+            suc += 1;
+        }
+
+        
+        info!(
+            self.logger,
+            "Syncing Balance from block:{}, AddressCnt:{}",
+            block_ptr.block_number(),
+            suc
+        );
+        
+        Ok(suc)
     }
 }

@@ -20,7 +20,7 @@ use graph::{
             self,
             types::{
                 Address, Block, BlockId, BlockNumber as Web3BlockNumber, Bytes, CallRequest,
-                Filter, FilterBuilder, Log, Transaction, TransactionReceipt, H256,
+                Filter, FilterBuilder, Log, Transaction, TransactionReceipt, H256, U256,
             },
         },
         BlockNumber, ChainStore, CheapClone, DynTryFuture, Error, EthereumCallCache, Logger,
@@ -1205,6 +1205,30 @@ impl EthereumAdapterTrait for EthereumAdapter {
                 })
                 .from_err()
                 .map(move |block_hash| BlockPtr::from((block_hash, block_number))),
+        )
+    }
+
+    fn balance(
+        &self,
+        logger: Logger,
+        addr: Address,
+        number: Option<Web3BlockNumber>,
+    ) -> Box<dyn Future<Item = U256, Error = Error> + Send> {
+        let logger = logger.clone();
+        let web3 = self.web3.clone();
+
+        Box::new(
+            retry("eth_getBalance RPC call", &logger)
+                .limit(*REQUEST_RETRIES)
+                .timeout_secs(*JSON_RPC_TIMEOUT)
+                .run(move || web3.eth().balance(addr, number).from_err().compat())
+                .map_err(move |e| {
+                    e.into_inner().unwrap_or_else(move || {
+                        anyhow!("Ethereum node took too long to return balance: {}", addr)
+                    })
+                })
+                .boxed()
+                .compat(),
         )
     }
 

@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use thiserror::Error;
-use web3::types::{Address, H256};
+use web3::types::{Address, H256, U256};
 
 use crate::blockchain::Blockchain;
 use crate::components::server::index_node::VersionInfo;
@@ -1258,7 +1258,12 @@ pub trait ChainStore: Send + Sync + 'static {
 
     /// Insert a block into the store (or update if they are already present).
     async fn upsert_block(&self, block: EthereumBlock) -> Result<(), Error>;
-
+    async fn upsert_balance(
+        &self,
+        address: &Address,
+        amount: U256,
+        block_ptr: &BlockPtr,
+    ) -> Result<(), Error>;
     fn upsert_light_blocks(&self, blocks: Vec<LightEthereumBlock>) -> Result<(), Error>;
 
     /// Try to update the head block pointer to the block with the highest block number.
@@ -1333,6 +1338,16 @@ pub trait ChainStore: Send + Sync + 'static {
         &self,
         block_ptr: &H256,
     ) -> Result<Vec<transaction_receipt::LightTransactionReceipt>, StoreError>;
+
+    // for balance
+    fn chain_balance_head_ptr(&self) -> Result<Option<BlockPtr>, Error>;
+    fn chain_balance_early_head_ptr(&self) -> Result<Option<BlockPtr>, Error>;
+    async fn chain_update_balance_head(&self, block_ptr: &BlockPtr) -> Result<u64, Error>;
+    async fn chain_update_balance_early_head(
+        &self,
+        early_block_ptr: &BlockPtr,
+    ) -> Result<u64, Error>;
+    async fn balance_address_list(&self, block_ptr: &BlockPtr) -> Result<Vec<Address>, Error>;
 }
 
 pub trait EthereumCallCache: Send + Sync + 'static {

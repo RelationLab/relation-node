@@ -198,6 +198,10 @@ pub trait IngestorAdapter<C: Blockchain>: Send + Sync {
     fn cleanup_cached_blocks(&self) -> Result<Option<(i32, usize)>, Error> {
         Ok(None)
     }
+
+    /// for balance ingest
+    fn balance_chain_store(&self) -> Arc<dyn ChainStore>;
+    async fn balance_ingest(&self, block_ptr: BlockPtr) -> Result<i32, Error>;
 }
 pub trait TriggerFilter<C: Blockchain>: Default + Clone + Send + Sync {
     // fn set_sub_id(&mut self, id: String);

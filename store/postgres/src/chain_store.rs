@@ -1,10 +1,12 @@
+use crate::lazy_static::__Deref;
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use diesel::r2d2::{ConnectionManager, PooledConnection};
 use diesel::sql_types::Text;
 use diesel::{insert_into, update};
 use graph::ensure;
-use graph::prelude::web3::types::H256;
+use graph::prelude::web3::types::{Address, H256, U256};
+use graph::prelude::BigDecimal;
 use graph::{
     constraint_violation,
     prelude::{
@@ -12,7 +14,6 @@ use graph::{
         StoreError,
     },
 };
-
 use std::{
     collections::HashMap,
     convert::{TryFrom, TryInto},
@@ -46,6 +47,21 @@ mod public {
             genesis_block_hash -> Varchar,
         }
     }
+
+    table! {
+        ethereum_balance (name) {
+            name -> Varchar,
+            namespace -> Varchar,
+            head_block_hash -> Nullable<Varchar>,
+            head_block_number -> Nullable<BigInt>,
+            early_head_block_hash -> Nullable<Varchar>,
+            early_head_block_number -> Nullable<BigInt>,
+            head_updated -> Timestamp,
+            early_head_updated -> Timestamp,
+            net_version -> Varchar,
+            genesis_block_hash -> Varchar,
+        }
+    }
 }
 
 pub use data::Storage;
@@ -64,7 +80,7 @@ mod data {
         types::{FromSql, ToSql},
     };
     use diesel::{
-        sql_types::{BigInt, Bytea, Integer, Jsonb, Nullable},
+        sql_types::{BigInt, Bytea, Integer, Jsonb, Nullable, Numeric},
         update,
     };
     use diesel_dynamic_schema as dds;
@@ -73,17 +89,17 @@ mod data {
         prelude::{transaction_receipt::LightTransactionReceipt, StoreError},
     };
 
-    use std::fmt;
-    use std::iter::FromIterator;
-    use std::sync::Arc;
-    use std::{convert::TryFrom, io::Write};
-
     use core::any::type_name;
+    use graph::prelude::BigDecimal;
     use graph::prelude::{
         serde_json, web3::types::Bytes, web3::types::H160, web3::types::H256, web3::types::U256,
         web3::types::U64, BlockNumber, BlockPtr, Error, EthereumBlock, LightEthereumBlock,
     };
     use std::any::Any;
+    use std::fmt;
+    use std::iter::FromIterator;
+    use std::sync::Arc;
+    use std::{convert::TryFrom, io::Write};
     // use std::any::TypeId;
 
     struct BindSqlType<T> {
@@ -126,6 +142,7 @@ mod data {
     pub(crate) const ETHEREUM_BLOCKS_TABLE_NAME: &'static str = "public.ethereum_blocks";
 
     mod public {
+        pub(super) use super::super::public::ethereum_balance;
         pub(super) use super::super::public::ethereum_networks;
 
         //chain table
@@ -172,7 +189,6 @@ mod data {
                 data -> Jsonb,
             }
         }
-
         allow_tables_to_appear_in_same_query!(ethereum_networks, ethereum_blocks);
 
         table! {
@@ -319,8 +335,38 @@ mod data {
                 table: dds::schema(namespace.to_string()).table(Self::TABLE_NAME.to_string()),
             }
         }
-    }
 
+        fn to(&self) -> DynColumn<Bytea> {
+            self.table.column::<Bytea, _>("to")
+        }
+        fn table(&self) -> DynTable {
+            self.table.clone()
+        }
+        fn block_number(&self) -> DynColumn<BigInt> {
+            self.table.column::<BigInt, _>("block_number")
+        }
+    }
+    #[derive(Clone, Debug)]
+    struct BalanceTable {
+        /// The fully qualified name of the blocks table, including the
+        /// schema
+        qname: String,
+        table: DynTable,
+    }
+    impl BalanceTable {
+        const TABLE_NAME: &'static str = "balance";
+
+        fn new(namespace: &str) -> Self {
+            BalanceTable {
+                qname: format!("{}.{}", namespace, Self::TABLE_NAME),
+                table: dds::schema(namespace.to_string()).table(Self::TABLE_NAME.to_string()),
+            }
+        }
+
+        fn table(&self) -> DynTable {
+            self.table.clone()
+        }
+    }
     #[derive(Clone, Debug)]
     struct ReceiptsTable {
         /// The fully qualified name of the blocks table, including the
@@ -411,6 +457,7 @@ mod data {
         receipts: ReceiptsTable,
         call_meta: CallMetaTable,
         call_cache: CallCacheTable,
+        balance: BalanceTable,
     }
 
     impl Schema {
@@ -420,6 +467,8 @@ mod data {
             let receipts = ReceiptsTable::new(&name);
             let call_meta = CallMetaTable::new(&name);
             let call_cache = CallCacheTable::new(&name);
+            let balance = BalanceTable::new(&name);
+
             Self {
                 name,
                 blocks,
@@ -427,6 +476,7 @@ mod data {
                 receipts,
                 call_meta,
                 call_cache,
+                balance,
             }
         }
     }
@@ -552,6 +602,17 @@ mod data {
                 );
                 comment on column {nsp}.call_cache.method_params is 'call-params split by ,';
 
+
+                create table {nsp}.balance (
+                    block_hash            bytea,
+                    block_number          int8,
+                    amount                numeric,
+                    address               bytea,
+                    primary key(address, block_number)
+                );
+                create index address_number_index ON {nsp}.balance using btree(address, block_number);
+
+
                 create table {nsp}.call_meta (
                     contract_address bytea not null primary key,
                     accessed_at      date  not null
@@ -597,6 +658,45 @@ mod data {
             }
         }
 
+        pub(super) fn upsert_balance(
+            &self,
+            conn: &PgConnection,
+            address: &web3::types::Address,
+            amount: U256,
+            block_ptr: &BlockPtr,
+        ) -> Result<(), StoreError> {
+            match self {
+                Storage::Shared => {
+                    // error
+                }
+
+                Storage::Private(Schema { balance, .. }) => {
+                    // use diesel::pg::upsert::excluded;
+                    let query = format!(
+                        "insert into {}(address, amount, block_number, block_hash) \
+                     values ($1, $2, $3, $4) \
+                         on conflict(address, block_number) \
+                         do update set amount = $2",
+                        balance.qname,
+                    );
+
+                    let bignum = graph::prelude::BigInt::from_unsigned_u256(&amount);
+                    let slice = bignum.to_signed_bytes_le();
+                    let nbigint = num_bigint::BigInt::from_signed_bytes_le(slice.as_slice());
+                    let bigdecimal = graph::prelude::bigdecimal::BigDecimal::from(nbigint);
+                    let num = diesel::pg::data_types::PgNumeric::from(bigdecimal);
+
+                    sql_query(query)
+                        .bind::<Bytea, _>(address.as_ref())
+                        // need 256
+                        .bind::<Numeric, _>(num)
+                        .bind::<BigInt, _>(block_ptr.block_number() as i64)
+                        .bind::<Bytea, _>(block_ptr.hash_slice())
+                        .execute(conn)?;
+                }
+            };
+            Ok(())
+        }
         /// Insert a block. If the table already contains a block with the
         /// same hash, then overwrite that block since it may be adding
         /// transaction receipts.
@@ -1610,6 +1710,31 @@ from (
                 .map(LightTransactionReceipt::try_from)
                 .collect()
         }
+
+        // for balance
+        pub(crate) fn find_transaction_address(
+            &self,
+            conn: &PgConnection,
+            block_ptr: &BlockPtr,
+        ) -> anyhow::Result<Vec<web3::types::Address>, Error> {
+            match self {
+                Storage::Shared => Ok(Vec::<web3::types::Address>::new()),
+                Storage::Private(Schema { transactions, .. }) => {
+                    let rst = transactions
+                        .table()
+                        .select(transactions.to())
+                        .filter(transactions.block_number().eq(block_ptr.number as i64))
+                        .filter(transactions.to().is_not_null())
+                        .get_results::<Vec<u8>>(conn)?;
+
+                    let ret = rst
+                        .into_iter()
+                        .map(|addr| H160::from_slice(addr.as_slice()))
+                        .collect::<Vec<H160>>();
+                    Ok(ret)
+                }
+            }
+        }
     }
 }
 
@@ -1652,27 +1777,51 @@ impl ChainStore {
     }
 
     pub(crate) fn create(&self, ident: &EthereumNetworkIdentifier) -> Result<(), Error> {
-        use public::ethereum_networks::dsl::*;
+        {
+            use public::ethereum_networks::dsl::*;
 
-        let conn = self.get_conn()?;
-        conn.transaction(|| {
-            insert_into(ethereum_networks)
-                .values((
-                    name.eq(&self.chain),
-                    namespace.eq(&self.storage),
-                    head_block_hash.eq::<Option<String>>(None),
-                    head_block_number.eq::<Option<i64>>(None),
-                    early_head_block_hash.eq::<Option<String>>(None),
-                    early_head_block_number.eq::<Option<i64>>(None),
-                    net_version.eq(&ident.net_version),
-                    genesis_block_hash.eq(format!("{:x}", ident.genesis_block_hash)),
-                ))
-                .on_conflict(name)
-                .do_nothing()
-                .execute(&conn)?;
-            self.storage.create(&conn)
-        })?;
+            let conn = self.get_conn()?;
+            conn.transaction(|| {
+                insert_into(ethereum_networks)
+                    .values((
+                        name.eq(&self.chain),
+                        namespace.eq(&self.storage),
+                        head_block_hash.eq::<Option<String>>(None),
+                        head_block_number.eq::<Option<i64>>(None),
+                        early_head_block_hash.eq::<Option<String>>(None),
+                        early_head_block_number.eq::<Option<i64>>(None),
+                        net_version.eq(&ident.net_version),
+                        genesis_block_hash.eq(format!("{:x}", ident.genesis_block_hash)),
+                    ))
+                    .on_conflict(name)
+                    .do_nothing()
+                    .execute(&conn)?;
+                self.storage.create(&conn)
+            })?;
+        }
+        // balnace
+        {
+            use public::ethereum_balance as eb;
+            use public::ethereum_balance::dsl::*;
+            let conn = self.get_conn()?;
 
+            conn.transaction(|| {
+                insert_into(eb::table)
+                    .values((
+                        name.eq(&self.chain),
+                        namespace.eq(&self.storage),
+                        head_block_hash.eq::<Option<String>>(None),
+                        head_block_number.eq::<Option<i64>>(None),
+                        early_head_block_hash.eq::<Option<String>>(None),
+                        early_head_block_number.eq::<Option<i64>>(None),
+                        net_version.eq(&ident.net_version),
+                        genesis_block_hash.eq(format!("{:x}", ident.genesis_block_hash)),
+                    ))
+                    .on_conflict(name)
+                    .do_nothing()
+                    .execute(&conn)
+            })?;
+        }
         Ok(())
     }
 
@@ -1734,6 +1883,27 @@ impl ChainStore {
 impl ChainStoreTrait for ChainStore {
     fn genesis_block_ptr(&self) -> Result<BlockPtr, Error> {
         Ok(self.genesis_block_ptr.clone())
+    }
+
+    async fn upsert_balance(
+        &self,
+        address: &Address,
+        amount: U256,
+        block_ptr: &BlockPtr,
+    ) -> Result<(), Error> {
+        let pool = self.pool.clone();
+        let address_clone = address.clone();
+        let block_ptr_clone = block_ptr.clone();
+        let storage = self.storage.clone();
+        pool.with_conn(move |conn, _| {
+            conn.transaction(|| {
+                storage
+                    .upsert_balance(&conn, &address_clone, amount, &block_ptr_clone)
+                    .map_err(CancelableError::from)
+            })
+        })
+        .await
+        .map_err(Error::from)
     }
 
     async fn upsert_block(&self, block: EthereumBlock) -> Result<(), Error> {
@@ -2010,6 +2180,94 @@ impl ChainStoreTrait for ChainStore {
                 .map_err(|e| StoreError::from(e).into())
         })
         .await
+    }
+
+    /// for balance
+    fn chain_balance_head_ptr(&self) -> Result<Option<BlockPtr>, Error> {
+        use public::ethereum_balance as eb;
+
+        eb::table
+            .select((eb::head_block_hash, eb::head_block_number))
+            .filter(eb::name.eq(&self.chain))
+            .load::<(Option<String>, Option<i64>)>(&*self.get_conn()?)
+            .map(|rows| {
+                rows.first()
+                    .map(|(hash_opt, number_opt)| match (hash_opt, number_opt) {
+                        (Some(hash), Some(number)) => Some((hash.parse().unwrap(), *number).into()),
+                        (None, None) => None,
+                        _ => unreachable!(),
+                    })
+                    .and_then(|opt| opt)
+            })
+            .map_err(Error::from)
+    }
+    fn chain_balance_early_head_ptr(&self) -> Result<Option<BlockPtr>, Error> {
+        use public::ethereum_balance as eb;
+
+        eb::table
+            .select((eb::early_head_block_hash, eb::early_head_block_number))
+            .filter(eb::name.eq(&self.chain))
+            .load::<(Option<String>, Option<i64>)>(&*self.get_conn()?)
+            .map(|rows| {
+                rows.first()
+                    .map(|(hash_opt, number_opt)| match (hash_opt, number_opt) {
+                        (Some(hash), Some(number)) => Some((hash.parse().unwrap(), *number).into()),
+                        (None, None) => None,
+                        _ => unreachable!(),
+                    })
+                    .and_then(|opt| opt)
+            })
+            .map_err(Error::from)
+    }
+
+    async fn chain_update_balance_head(&self, block_ptr: &BlockPtr) -> Result<u64, Error> {
+        use public::ethereum_balance as n;
+
+        let chain_store = self.clone();
+        let conn = self.pool.get().expect("can get a database connection");
+
+        let ret = update(n::table.filter(n::name.eq(&chain_store.chain)))
+            .set((
+                n::head_block_hash.eq(&block_ptr.hash_hex()),
+                n::head_block_number.eq(block_ptr.number as i64),
+                n::head_updated.eq(diesel::dsl::now),
+            ))
+            .execute(&conn)
+            .map(|x| x as u64);
+        ret.map_err(Error::from)
+    }
+    async fn chain_update_balance_early_head(&self, early_block: &BlockPtr) -> Result<u64, Error> {
+        use public::ethereum_balance as n;
+
+        let chain_store = self.clone();
+        let conn = self.pool.get().expect("can get a database connection");
+
+        let ret = update(n::table.filter(n::name.eq(&chain_store.chain)))
+            .set((
+                n::early_head_block_hash.eq(&early_block.hash_hex()),
+                n::early_head_block_number.eq(early_block.number as i64),
+                n::early_head_updated.eq(diesel::dsl::now),
+            ))
+            .execute(&conn)
+            .map(|x| x as u64);
+        ret.map_err(Error::from)
+    }
+
+    async fn balance_address_list(&self, block_ptr: &BlockPtr) -> Result<Vec<Address>, Error> {
+        let pool = self.pool.clone();
+        let storage = self.storage.clone();
+
+        let block_ptr_box = Box::new(block_ptr.clone());
+        let ret = pool
+            .with_conn(move |conn, _| {
+                let block = block_ptr_box.deref();
+                storage
+                    .find_transaction_address(&conn, block)
+                    .map_err(|e| StoreError::from(e).into())
+            })
+            .await
+            .map_err(|e| Error::from(e));
+        ret
     }
 }
 

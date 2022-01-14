@@ -1559,11 +1559,13 @@ name = "graph-chain-ethereum"
 version = "0.24.1"
 dependencies = [
  "anyhow",
+ "bigdecimal",
  "chrono",
  "diesel",
  "dirs-next",
  "ethabi 12.0.0-graph",
  "futures 0.1.31",
+ "futures 0.3.16",
  "graph",
  "graph-core",
  "graph-runtime-derive",
@@ -1828,6 +1830,7 @@ dependencies = [
  "lazy_static",
  "lru_time_cache",
  "maybe-owned",
+ "num-bigint",
  "pin-utils",
  "postgres",
  "rand 0.6.5",
