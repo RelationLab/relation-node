@@ -18,6 +18,8 @@ mock! {
 
     #[async_trait]
     trait ChainStore: Send + Sync + 'static {
+        fn block_hash(&self, block_number: BlockNumber) -> Result<H256, StoreError>;
+
         fn genesis_block_ptr(&self) -> Result<BlockPtr, Error>;
 
         async fn upsert_block(&self, block: EthereumBlock) -> Result<(), Error>;

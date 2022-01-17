@@ -1,5 +1,5 @@
 use crate::{
-    blockchain::{BlockPtr, Blockchain, IngestorAdapter, IngestorError},
+    blockchain::{BlockHash, BlockPtr, Blockchain, IngestorAdapter, IngestorError},
     prelude::{info, lazy_static, tokio, trace, warn, Error, LogCode, Logger},
     task_spawn::{block_on, spawn_blocking_allow_panic},
 };
@@ -389,11 +389,14 @@ where
             match rst {
                 Err(e) => return Err(IngestorError::Unknown(Error::from(e))),
                 Ok(cnt) => {
-                    let cnt = cnt?;
+                    // let cnt = cnt?;
 
+                    let number = balance_early_block_ptr_opt.as_ref().unwrap().block_number() - 1;
                     let next_backward_block_ptr = BlockPtr {
-                        hash: balance_early_block_ptr_opt.as_ref().unwrap().hash.clone(),
-                        number: balance_early_block_ptr_opt.unwrap().block_number() - 1,
+                        number: number,
+                        hash: BlockHash::from(
+                            store.block_hash(number).expect("BlockHash no blocks"),
+                        ),
                     };
                     store
                         .chain_update_balance_early_head(&next_backward_block_ptr)
@@ -414,11 +417,14 @@ where
             match rst {
                 Err(e) => return Err(IngestorError::Unknown(Error::from(e))),
                 Ok(cnt) => {
-                    let cnt = cnt?;
+                    // let cnt = cnt?;
 
+                    let number = balance_block_ptr_opt.as_ref().unwrap().block_number() + 1;
                     let next_forward_block_ptr = BlockPtr {
-                        hash: balance_block_ptr_opt.as_ref().unwrap().hash.clone(),
-                        number: balance_block_ptr_opt.unwrap().block_number() + 1,
+                        number: number,
+                        hash: BlockHash::from(
+                            store.block_hash(number).expect("BlockHash no blocks"),
+                        ),
                     };
                     store
                         .chain_update_balance_head(&next_forward_block_ptr)

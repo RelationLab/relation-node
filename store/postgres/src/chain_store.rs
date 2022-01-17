@@ -257,7 +257,7 @@ mod data {
         hash: String,
     }
 
-    #[derive(QueryableByName)]
+    #[derive(QueryableByName, Debug)]
     struct BlockHashBytea {
         #[sql_type = "Bytea"]
         hash: Vec<u8>,
@@ -1118,6 +1118,26 @@ mod data {
             }
         }
 
+        pub(super) fn block_hash(
+            &self,
+            conn: &PgConnection,
+            block_number: BlockNumber,
+        ) -> Result<H256, StoreError> {
+            match self {
+                Storage::Shared => Err(StoreError::QueryExecutionError(
+                    "unsupport Shared".to_string(),
+                )),
+                Storage::Private(Schema { blocks, .. }) => {
+                    let ret = blocks
+                        .table()
+                        .select(blocks.hash())
+                        .filter(blocks.number().eq(block_number as i64))
+                        .first::<Vec<u8>>(conn)
+                        .map(|x| h256_from_bytes(x.as_slice()))?;
+                    ret
+                }
+            }
+        }
         pub(super) fn block_number(
             &self,
             conn: &PgConnection,
@@ -2159,6 +2179,10 @@ impl ChainStoreTrait for ChainStore {
             .confirm_block_hash(&conn, &self.chain, number, hash)
     }
 
+    fn block_hash(&self, block_number: BlockNumber) -> Result<H256, StoreError> {
+        let conn = self.get_conn()?;
+        Ok(self.storage.block_hash(&conn, block_number)?)
+    }
     fn block_number(&self, hash: H256) -> Result<Option<(String, BlockNumber)>, StoreError> {
         let conn = self.get_conn()?;
         Ok(self

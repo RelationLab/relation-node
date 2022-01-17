@@ -1332,7 +1332,7 @@ pub trait ChainStore: Send + Sync + 'static {
 
     /// Find the block with `block_hash` and return the network name and number
     fn block_number(&self, block_hash: H256) -> Result<Option<(String, BlockNumber)>, StoreError>;
-
+    fn block_hash(&self, block_number: BlockNumber) -> Result<H256, StoreError>;
     /// Tries to retrieve all transactions receipts for a given block.
     async fn transaction_receipts_in_block(
         &self,
