@@ -765,6 +765,25 @@ impl IngestorAdapterTrait<Chain> for IngestorAdapter {
         return self.chain_store.clone();
     }
 
+    async fn blockptr_by_number(&self, block_number: BlockNumber) -> Result<BlockPtr, Error> {
+        let hash = self.chain_store.block_hash(block_number);
+
+        match hash {
+            Ok(h) => Ok(BlockPtr {
+                number: block_number,
+                hash: BlockHash::from(h),
+            }),
+            Err(_) => {
+                let block = self
+                    .eth_adapter
+                    .block_by_number(&self.logger, block_number)
+                    .compat()
+                    .await?;
+
+                Ok(block.unwrap().block_ptr())
+            }
+        }
+    }
     async fn balance_ingest(&self, block_ptr: BlockPtr) -> Result<i32, Error> {
         // self.balance_task_cnt;
         // get transactions by blocknumber

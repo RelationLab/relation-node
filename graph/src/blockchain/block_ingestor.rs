@@ -373,7 +373,7 @@ where
         trace!(self.logger, "BlockIngestor::do_poll_balance");
 
         let store = self.adapter.balance_chain_store();
-
+        let adapter = Arc::clone(&self.adapter);
         let (balance_block_ptr_opt, balance_early_block_ptr_opt) = self.balance_block_ptr()?;
 
         // todo: revert
@@ -392,14 +392,12 @@ where
                     // let cnt = cnt?;
 
                     let number = balance_early_block_ptr_opt.as_ref().unwrap().block_number() - 1;
-                    let next_backward_block_ptr = BlockPtr {
-                        number: number,
-                        hash: BlockHash::from(
-                            store.block_hash(number).expect("BlockHash no blocks"),
-                        ),
-                    };
+                    let next_ptr = adapter
+                        .blockptr_by_number(number)
+                        .await
+                        .expect(format!("balance no block:{}", number).as_str());
                     store
-                        .chain_update_balance_early_head(&next_backward_block_ptr)
+                        .chain_update_balance_early_head(&next_ptr)
                         .await
                         .map_err(|e| IngestorError::Unknown(e))?;
                 }
@@ -420,14 +418,12 @@ where
                     // let cnt = cnt?;
 
                     let number = balance_block_ptr_opt.as_ref().unwrap().block_number() + 1;
-                    let next_forward_block_ptr = BlockPtr {
-                        number: number,
-                        hash: BlockHash::from(
-                            store.block_hash(number).expect("BlockHash no blocks"),
-                        ),
-                    };
+                    let next_ptr = adapter
+                        .blockptr_by_number(number)
+                        .await
+                        .expect(format!("balance no block:{}", number).as_str());
                     store
-                        .chain_update_balance_head(&next_forward_block_ptr)
+                        .chain_update_balance_head(&next_ptr)
                         .await
                         .map_err(|e| IngestorError::Unknown(e))?;
                 }

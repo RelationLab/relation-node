@@ -201,6 +201,7 @@ pub trait IngestorAdapter<C: Blockchain>: Send + Sync {
 
     /// for balance ingest
     fn balance_chain_store(&self) -> Arc<dyn ChainStore>;
+    async fn blockptr_by_number(&self, block_number: BlockNumber) -> Result<BlockPtr, Error>;
     async fn balance_ingest(&self, block_ptr: BlockPtr) -> Result<i32, Error>;
 }
 pub trait TriggerFilter<C: Blockchain>: Default + Clone + Send + Sync {
