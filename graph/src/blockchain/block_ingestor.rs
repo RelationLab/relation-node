@@ -340,7 +340,7 @@ where
             return Err(IngestorError::EarlyBlockUninitialized());
         }
         let head_block_ptr = head_block_ptr_opt.unwrap();
-        let early_head_block_ptr = early_head_block_ptr_opt.unwrap();
+        let mut early_head_block_ptr = early_head_block_ptr_opt.unwrap();
 
         // todo: option
         let balance_head_ptr_opt = store.chain_balance_head_ptr()?;
@@ -364,7 +364,9 @@ where
         } else if early_head_block_ptr.number < balance_early_head_ptr.number {
             return Ok((None, Some(balance_early_head_ptr)));
         }
-        return Ok((None, None));
+        early_head_block_ptr.number = head_block_ptr.number - 1;
+        early_head_block_ptr.hash = head_block_ptr.hash.clone();
+        return Ok((Some(head_block_ptr), Some(early_head_block_ptr)));
     }
 
     async fn do_poll_balance(&self) -> Result<Option<i32>, IngestorError> {

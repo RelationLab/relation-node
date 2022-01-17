@@ -23,7 +23,7 @@ use graph::{
     firehose::bstream,
     log::factory::{ComponentLoggerConfig, ElasticComponentLoggerConfig},
     prelude::{
-        async_trait, info, error, lazy_static, o, web3::types::H256, web3::types::U256, BigDecimal,
+        async_trait, error, info, lazy_static, o, web3::types::H256, web3::types::U256, BigDecimal,
         BigInt, BlockNumber, ChainStore, EthereumBlockWithCalls, Future01CompatExt, Logger,
         LoggerFactory, MetricsRegistry, NodeId, SubgraphStore,
     },
@@ -806,6 +806,10 @@ impl IngestorAdapterTrait<Chain> for IngestorAdapter {
             .collect::<Vec<_>>();
         let mut suc = 0;
         for rst in stored_balances {
+            // todo:
+            if (rst.1 == U256::zero()) {
+                continue;
+            }
             self.chain_store
                 .upsert_balance(&rst.0, rst.1, &block_ptr)
                 .await
@@ -814,14 +818,13 @@ impl IngestorAdapterTrait<Chain> for IngestorAdapter {
             suc += 1;
         }
 
-        
         info!(
             self.logger,
             "Syncing Balance from block:{}, AddressCnt:{}",
             block_ptr.block_number(),
             suc
         );
-        
+
         Ok(suc)
     }
 }
