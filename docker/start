@@ -71,6 +71,7 @@ run_graph_node() {
             --node-id "${node_id//-/_}" \
             --postgres-url "$postgres_url" \
             --ethereum-rpc $ethereum \
+            --disable-block-ingestor $disable-block-ingestor \
             --ipfs "$ipfs"
     fi
 }
