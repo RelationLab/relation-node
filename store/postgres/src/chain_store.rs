@@ -835,23 +835,26 @@ mod data {
                                     Some(s) => format!("{}", s),
                                     None => format!("null"),
                                 };
-                                let log_index = match log.log_index {
-                                    Some(s) => BindSqlType::bytea(s),
-                                    None => format!("null"),
-                                };
-                                let transaction_hash = match log.transaction_hash {
-                                    Some(s) => BindSqlType::bytea(s),
-                                    None => format!("null"),
-                                };
 
                                 let transaction_index = match log.transaction_index {
                                     Some(s) => BindSqlType::bytea(s),
                                     None => format!("null"),
                                 };
 
+                                let mut _id: Vec<u8> = Vec::new();
+                                let transaction_hash = match log.transaction_hash {
+                                    Some(s) => BindSqlType::bytea(s),
+                                    None => format!("null"),
+                                };
+                                let log_index = match log.log_index {
+                                    Some(s) => BindSqlType::bytea(s),
+                                    None => format!("null"),
+                                };
+
+                                let id = format!("{}||{}", transaction_hash, log_index);
                                 format!(
                                     r#"({},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{})"#,
-                                    transaction_hash,
+                                    id,
                                     block_hash,
                                     number,
                                     data,
@@ -882,7 +885,8 @@ mod data {
                             receipts.qname,
                             values.join(","),
                         );
-                        sql_query(&query).execute(conn).expect(&format!(
+
+                        let rst = sql_query(&query).execute(conn).expect(&format!(
                             "Failed to insert {} ,sql:{}",
                             receipts.qname, &query
                         ));
