@@ -40,6 +40,7 @@ ENV EARLY_LOG_CHUNK_SIZE ""
 ENV ETHEREUM_RPC_PARALLEL_REQUESTS ""
 ENV ETHEREUM_BLOCK_CHUNK_SIZE ""
 
+ENV disable-block-ingestor false
 ENV postgres_host ""
 ENV postgres_user ""
 ENV postgres_pass ""
