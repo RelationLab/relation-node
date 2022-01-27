@@ -68,6 +68,7 @@ run_graph_node() {
         sleep 5
 
         if [ -n "$disable_block_ingestor" ]
+        then
             graph-node \
                 --node-id "${node_id//-/_}" \
                 --postgres-url "$postgres_url" \
