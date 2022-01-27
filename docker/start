@@ -67,12 +67,20 @@ run_graph_node() {
         wait_for "$postgres_host:$postgres_port" -t 120
         sleep 5
 
-        graph-node \
-            --node-id "${node_id//-/_}" \
-            --postgres-url "$postgres_url" \
-            --ethereum-rpc $ethereum \
-            --disable-block-ingestor $disable_block_ingestor \
-            --ipfs "$ipfs"
+        if [ -n "$disable_block_ingestor" ]
+            graph-node \
+                --node-id "${node_id//-/_}" \
+                --postgres-url "$postgres_url" \
+                --ethereum-rpc $ethereum \
+                --disable-block-ingestor $disable_block_ingestor \
+                --ipfs "$ipfs"
+        else
+            graph-node \
+                --node-id "${node_id//-/_}" \
+                --postgres-url "$postgres_url" \
+                --ethereum-rpc $ethereum \
+                --ipfs "$ipfs"
+        fi
     fi
 }
 
