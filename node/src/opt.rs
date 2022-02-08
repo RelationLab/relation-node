@@ -198,6 +198,13 @@ pub struct Opt {
                 (e.g. 'ethereum/mainnet')."
     )]
     pub network_subgraphs: Vec<String>,
+    #[structopt(
+        long,
+        value_name = "DISABLE_SUBGRAPH",
+        env = "DISABLE_SUBGRAPH",
+        help = "Ensures that the subgraph does not execute"
+    )]
+    pub disable_subgraph: bool,
 }
 
 impl From<Opt> for config::Opt {
@@ -213,6 +220,7 @@ impl From<Opt> for config::Opt {
             ethereum_rpc,
             ethereum_ws,
             ethereum_ipc,
+            disable_subgraph,
             ..
         } = opt;
         config::Opt {
@@ -226,6 +234,7 @@ impl From<Opt> for config::Opt {
             ethereum_rpc,
             ethereum_ws,
             ethereum_ipc,
+            disable_subgraph,
         }
     }
 }

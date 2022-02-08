@@ -355,13 +355,14 @@ async fn main() {
             node_id.clone(),
             version_switching_mode,
         ));
-        graph::spawn(
-            subgraph_registrar
-                .start()
-                .map_err(|e| panic!("failed to initialize subgraph provider {}", e))
-                .compat(),
-        );
-
+        if !opt.disable_subgraph {
+            graph::spawn(
+                subgraph_registrar
+                    .start()
+                    .map_err(|e| panic!("failed to initialize subgraph provider {}", e))
+                    .compat(),
+            );
+        }
         // Start admin JSON-RPC server.
         let json_rpc_server = JsonRpcServer::serve(
             json_rpc_port,
