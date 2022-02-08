@@ -67,13 +67,21 @@ run_graph_node() {
         wait_for "$postgres_host:$postgres_port" -t 120
         sleep 5
 
-        if [ -n "$disable_block_ingestor" ]
+        if $disable_block_ingestor
         then
+            echo "DISABLE_BLOCK_INGESTOR.."
             export DISABLE_BLOCK_INGESTOR=true
+        else
+            echo "unset DISABLE_BLOCK_INGESTOR.."
+            unset DISABLE_BLOCK_INGESTOR
         fi
-        if [ -n "$disable_subgraph" ]
+        if $disable_subgraph
         then
+            echo "DISABLE_SUBGRAPH.."
             export DISABLE_SUBGRAPH=true
+        else
+            echo "unset DISABLE_BLOCK_INGESTOR.."
+            unset DISABLE_SUBGRAPH
         fi
 
         graph-node \
